@@ -1,4 +1,8 @@
 (() => {
+  // crypto.randomUUID is only exposed in secure contexts (HTTPS or localhost); fall back to a
+  // non-cryptographic UUID v4 when testing over plain HTTP against a non-localhost address.
+  if(!window.crypto)window.crypto={};
+  if(typeof window.crypto.randomUUID!=='function')window.crypto.randomUUID=()=>'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:r&0x3|0x8).toString(16)});
   const data = window.GUIDE_DATA || { pokemon: [], moves: [], locations: [] };
   const spriteFallbacks={1011:'assets/pokemon/dipplin.png',1012:'assets/pokemon/poltchageist.png',1013:'assets/pokemon/sinistcha.png',1014:'assets/pokemon/okidogi.png',1015:'assets/pokemon/munkidori.png',1016:'assets/pokemon/fezandipiti.png',1018:'assets/pokemon/archaludon.png',1019:'assets/pokemon/hydrapple.png',1020:'assets/pokemon/gouging-fire.png',1021:'assets/pokemon/raging-bolt.png',1022:'assets/pokemon/iron-boulder.png',1023:'assets/pokemon/iron-crown.png',1024:'assets/pokemon/terapagos.png',1025:'assets/pokemon/pecharunt.png',2001:'assets/pokemon/chillet.png'};
   const formSpriteFallbacks={'Ogerpon':'assets/pokemon/ogerpon.png','Ogerpon-Wellspring':'assets/pokemon/ogerpon-wellspring.png','Ogerpon-Hearthflame':'assets/pokemon/ogerpon-hearthflame.png','Ogerpon-Cornerstone':'assets/pokemon/ogerpon-cornerstone.png'};
@@ -7,8 +11,10 @@
   const eggData = window.EGG_GUIDE_DATA || [];
   const acquisitionData = window.ACQUISITION_GUIDE_DATA || {};
   const battleGuideData = window.BATTLE_DATA || {meta:{},battles:[]};
+  const fsAccessSupported=typeof window.showOpenFilePicker==='function';
   const syncEndpoint=(window.RADICAL_RED_SYNC_ENDPOINT||'').replace(/\/+$/,'');
   const syncCodePattern=/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}){2}$/;
+  const langKey='radical-red-lang-v1';
   const syncKeys={code:'radical-red-sync-code-v1',meta:'radical-red-save-meta-v1',context:'radical-red-sync-context-v1',backups:'radical-red-local-backups-v1',team:'radical-red-team-v1',futureTeam:'radical-red-future-team-v1',favorites:'radical-red-favorite-builds-v1',badges:'radical-red-badges-v1',buildSelections:'radical-red-build-selections-v1'};
   const natures=[['Hardy',-1,-1],['Lonely',1,2],['Brave',1,3],['Adamant',1,4],['Naughty',1,5],['Bold',2,1],['Docile',-1,-1],['Relaxed',2,3],['Impish',2,4],['Lax',2,5],['Timid',3,1],['Hasty',3,2],['Serious',-1,-1],['Jolly',3,4],['Naive',3,5],['Modest',4,1],['Mild',4,2],['Quiet',4,3],['Bashful',-1,-1],['Rash',4,5],['Calm',5,1],['Gentle',5,2],['Sassy',5,3],['Careful',5,4],['Quirky',-1,-1]];
   const main = document.querySelector('#mainContent');
@@ -46,9 +52,10 @@
   const savedFavorites=JSON.parse(localStorage.getItem(syncKeys.favorites)||'[]');
   const savedBuildSelections=(()=>{try{const saved=JSON.parse(localStorage.getItem(syncKeys.buildSelections)||'{}');return saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{}}catch{return{}}})();
   const blankTeamSlot=()=>({pokemonId:null,nickname:'',nature:'Hardy',ability:'',heldItem:'',moves:['','','',''],shiny:false});
+  const blankSavAddForm=()=>({pokemonId:null,nickname:'',level:50,shiny:false,nature:'Hardy',ability:'',heldItem:'',moves:['','','','']});
   const blankDexFilters=()=>({evolution:[],acquisition:[],availability:[],category:[],rank:[],potential:[],bstMin:'',bstMax:'',profile:[],forms:[],moveTypes:[]});
   const initialView=location.hash.slice(1)||'home',legacyLocationSection=['eggs','legendaries'].includes(initialView)?initialView:null;
-  const state = { view: legacyLocationSection?'locations':initialView, query: '', moveQuery: '', moveType: 'all', moveCategory: 'all', moveSort: 'az', moveVisible: 50, locationFilter: '', locationVisible: 8, locationSection:legacyLocationSection||'wild', wildUncaughtView:false, raidStarFilter:'all', type: 'all', sort: 'dex', dexCaughtFilter: 'all', hideCaught: false, period: 'day', visible: 50, selected: {}, caught: store('radical-red-caught'),team:Array.from({length:6},(_,i)=>({...blankTeamSlot(),...(savedTeam[i]||{}),moves:Array.from({length:4},(__,m)=>savedTeam[i]?.moves?.[m]||'')})),futureTeam:Array.from({length:6},(_,i)=>({...blankTeamSlot(),...(savedFutureTeam[i]||{}),moves:Array.from({length:4},(__,m)=>savedFutureTeam[i]?.moves?.[m]||'')})),favorites:Array.isArray(savedFavorites)?savedFavorites:[],buildSelections:savedBuildSelections,syncCode:localStorage.getItem(syncKeys.code)||'',saveMeta:{revision:Number(savedMeta.revision)||0,modifiedAt:savedMeta.modifiedAt||null,deviceId:savedMeta.deviceId||crypto.randomUUID()},syncContext:{code:savedContext.code||'',lastSyncedRevision:Number.isInteger(savedContext.lastSyncedRevision)?savedContext.lastSyncedRevision:null,lastSyncedFingerprint:savedContext.lastSyncedFingerprint||'',lastSyncedAt:savedContext.lastSyncedAt||null},syncStatus:'unchecked',syncSnapshot:null,cloudHistory:[] };
+  const state = { view: legacyLocationSection?'locations':initialView, query: '', moveQuery: '', moveType: 'all', moveCategory: 'all', moveSort: 'az', moveVisible: 50, locationFilter: '', locationVisible: 8, locationSection:legacyLocationSection||'wild', wildUncaughtView:false, raidStarFilter:'all', type: 'all', sort: 'dex', dexCaughtFilter: 'all', hideCaught: false, period: 'day', visible: 50, selected: {}, caught: store('radical-red-caught'),team:Array.from({length:6},(_,i)=>({...blankTeamSlot(),...(savedTeam[i]||{}),moves:Array.from({length:4},(__,m)=>savedTeam[i]?.moves?.[m]||'')})),futureTeam:Array.from({length:6},(_,i)=>({...blankTeamSlot(),...(savedFutureTeam[i]||{}),moves:Array.from({length:4},(__,m)=>savedFutureTeam[i]?.moves?.[m]||'')})),favorites:Array.isArray(savedFavorites)?savedFavorites:[],buildSelections:savedBuildSelections,syncCode:localStorage.getItem(syncKeys.code)||'',saveMeta:{revision:Number(savedMeta.revision)||0,modifiedAt:savedMeta.modifiedAt||null,deviceId:savedMeta.deviceId||crypto.randomUUID()},syncContext:{code:savedContext.code||'',lastSyncedRevision:Number.isInteger(savedContext.lastSyncedRevision)?savedContext.lastSyncedRevision:null,lastSyncedFingerprint:savedContext.lastSyncedFingerprint||'',lastSyncedAt:savedContext.lastSyncedAt||null},syncStatus:'unchecked',syncSnapshot:null,cloudHistory:[], lang: localStorage.getItem(langKey)==='vi'?'vi':'en' };
   state.showShiny=localStorage.getItem('radical-red-dex-shiny-v1')==='true';state.detailShiny={};
   state.team.forEach(slot=>{slot.shiny=Boolean(slot.shiny)});state.futureTeam.forEach(slot=>{slot.shiny=Boolean(slot.shiny)});state.favorites.forEach(build=>{build.shiny=Boolean(build.shiny)});
   state.dexFilters=blankDexFilters();state.dexFilterOpen=false;
@@ -62,11 +69,21 @@
   state.battle=Array.from({length:2},(_,i)=>{const saved=JSON.parse(localStorage.getItem('radical-red-battle-planner-v1')||'[]')[i]||{};return{pokemonId:Number(saved.pokemonId)||null,moves:Array.from({length:4},(__,m)=>saved.moves?.[m]||'')}});
   state.battleSection='guide';state.battleMode='default';state.battleQuery='';state.battleCategory='all';state.battleExpandAll=false;
   state.openBattleGuides=(()=>{try{const saved=JSON.parse(sessionStorage.getItem('radical-red-open-battle-guides-v1')||'[]');return new Set(Array.isArray(saved)?saved.map(String):[])}catch{return new Set()}})();
+  state.savFileHandle=null;state.savFileName='';
+  state.savAdd=blankSavAddForm();state.savAddOpen=false;state.savAddBusy=false;
+  state.partyAdd=blankSavAddForm();
+  state.pcManager=null;state.savReaderBusy=false;
   const esc = value => String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   function norm(value){ return String(value || '').toLowerCase().replace(/[éè]/g,'e').replace(/[^a-z0-9]/g,''); }
   function locationOrder(a,b){ const ar=a.name.match(/^Route\s+(\d+)(.*)$/i),br=b.name.match(/^Route\s+(\d+)(.*)$/i);if(ar&&br)return Number(ar[1])-Number(br[1])||ar[2].localeCompare(br[2]);if(ar)return -1;if(br)return 1;return a.name.localeCompare(b.name); }
   function persist(){ localStorage.setItem('radical-red-caught', JSON.stringify([...state.caught]));state.saveMeta.revision++;state.saveMeta.modifiedAt=new Date().toISOString();localStorage.setItem(syncKeys.meta,JSON.stringify(state.saveMeta));state.syncSnapshot=null;state.syncStatus=state.syncCode&&syncEndpoint?'local-newer':'unchecked';updateProgress(); }
   function updateProgress(){ const pct=Math.round(state.caught.size/Math.max(groups.length,1)*100); document.querySelector('#headerProgress').textContent=`${pct}%`; }
+  // File System Access handles aren't JSON-serialisable, so they can't live in localStorage; IndexedDB can store them directly.
+  function savFileDb(){return new Promise((resolve,reject)=>{const req=indexedDB.open('radical-red-files',1);req.onupgradeneeded=()=>req.result.createObjectStore('handles');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+  async function idbGetSavHandle(){try{const db=await savFileDb();return await new Promise((resolve,reject)=>{const req=db.transaction('handles','readonly').objectStore('handles').get('savFile');req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)})}catch{return null}}
+  async function idbSetSavHandle(handle){try{const db=await savFileDb();await new Promise((resolve,reject)=>{const tx=db.transaction('handles','readwrite');tx.objectStore('handles').put(handle,'savFile');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch{}}
+  async function idbDeleteSavHandle(){try{const db=await savFileDb();await new Promise((resolve,reject)=>{const tx=db.transaction('handles','readwrite');tx.objectStore('handles').delete('savFile');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch{}}
+  async function loadSavFileHandle(){if(!fsAccessSupported||!('indexedDB' in window))return;const handle=await idbGetSavHandle();if(!handle)return;try{if(await handle.queryPermission({mode:'read'})!=='granted')return;state.savFileHandle=handle;state.savFileName=handle.name;if(state.view==='save')render()}catch{}}
   function activeForm(group){ return group.forms.find(f=>f.id===state.selected[group.dexId]) || group.forms[0]; }
   function formName(group, form){
     if(group.forms.length<2)return '';
@@ -114,7 +131,7 @@
   function enhanceRankSorts(root=main){root.querySelectorAll('#sortBy,#favoriteSort').forEach(select=>{if(!select.querySelector('option[value="rank"]')){const rank=document.createElement('option');rank.value='rank';rank.textContent='Rank (S–E)';select.querySelector('option[value="bst"]')?.insertAdjacentElement('afterend',rank)}if(!select.querySelector('option[value="potential"]')){const potential=document.createElement('option');potential.value='potential';potential.textContent='Potential rank';select.querySelector('option[value="rank"]')?.insertAdjacentElement('afterend',potential)}select.value=select.id==='sortBy'?state.sort:(state.favoriteSort||'dex')})}
   function disableInputAssistance(root=document){root.querySelectorAll('input[type="search"],input[type="text"],input:not([type]),textarea').forEach(input=>{input.setAttribute('autocomplete','off');input.setAttribute('autocorrect','off');input.setAttribute('autocapitalize','none');input.setAttribute('spellcheck','false');input.setAttribute('data-form-type','other');input.setAttribute('data-lpignore','true');input.setAttribute('data-1p-ignore','');input.setAttribute('data-bwignore','true');if(input.type==='search')input.setAttribute('enterkeyhint','search')})}
   function enhanceSearchClears(root=document){root.querySelectorAll('input[type="search"]:not(.search-clear-ready)').forEach(input=>{input.classList.add('search-clear-ready');const shell=document.createElement('span');shell.className='search-input-shell';input.parentNode.insertBefore(shell,input);shell.append(input);const button=document.createElement('button');button.type='button';button.className='search-clear-button';button.setAttribute('aria-label',`Clear ${input.placeholder||'search'}`);button.textContent='×';button.onclick=()=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus()};shell.append(button)})}
-  function enhancePokemonPickers(root=main){root.querySelectorAll('[data-team-species-search],[data-favorite-species],[data-battle-species]').forEach(input=>{input.removeAttribute('list');input.setAttribute('autocomplete','off');input.classList.add('pokemon-picker-input');const close=()=>input.parentElement?.querySelector('.pokemon-picker-results')?.remove(),show=()=>{close();const q=norm(input.value);if(!q)return;const seen=new Set(),matches=data.pokemon.filter(p=>{const name=displayPokemonName(p);if(!norm(name).includes(q)||seen.has(norm(name)))return false;seen.add(norm(name));return true}).sort((a,b)=>{const an=norm(displayPokemonName(a)).startsWith(q)?0:1,bn=norm(displayPokemonName(b)).startsWith(q)?0:1;return an-bn||displayPokemonName(a).localeCompare(displayPokemonName(b))}).slice(0,8);const results=document.createElement('div');results.className='pokemon-picker-results';results.innerHTML=matches.map(p=>`<button type="button" data-picker-pokemon="${p.id}"><img src="${p.sprite}" alt=""><span><strong>${esc(displayPokemonName(p))}</strong>${types(p)}</span></button>`).join('')||'<p>No matching Pokémon.</p>';input.insertAdjacentElement('afterend',results);results.querySelectorAll('[data-picker-pokemon]').forEach(button=>button.onmousedown=event=>{event.preventDefault();const p=pokemonById.get(Number(button.dataset.pickerPokemon));input.value=displayPokemonName(p);close();input.dispatchEvent(new Event('change',{bubbles:true}))})};input.oninput=show;input.onfocus=()=>{if(input.value.trim())show()};input.onkeydown=event=>{if(event.key==='Escape')close()};input.onblur=()=>setTimeout(close,150)})}
+  function enhancePokemonPickers(root=main){root.querySelectorAll('[data-team-species-search],[data-favorite-species],[data-battle-species],[data-sav-species-search],[data-party-add-species]').forEach(input=>{input.removeAttribute('list');input.setAttribute('autocomplete','off');input.classList.add('pokemon-picker-input');const close=()=>input.parentElement?.querySelector('.pokemon-picker-results')?.remove(),show=()=>{close();const q=norm(input.value);if(!q)return;const seen=new Set(),matches=data.pokemon.filter(p=>{const name=displayPokemonName(p);if(!norm(name).includes(q)||seen.has(norm(name)))return false;seen.add(norm(name));return true}).sort((a,b)=>{const an=norm(displayPokemonName(a)).startsWith(q)?0:1,bn=norm(displayPokemonName(b)).startsWith(q)?0:1;return an-bn||displayPokemonName(a).localeCompare(displayPokemonName(b))}).slice(0,8);const results=document.createElement('div');results.className='pokemon-picker-results';results.innerHTML=matches.map(p=>`<button type="button" data-picker-pokemon="${p.id}"><img src="${p.sprite}" alt=""><span><strong>${esc(displayPokemonName(p))}</strong>${types(p)}</span></button>`).join('')||'<p>No matching Pokémon.</p>';input.insertAdjacentElement('afterend',results);results.querySelectorAll('[data-picker-pokemon]').forEach(button=>button.onmousedown=event=>{event.preventDefault();const p=pokemonById.get(Number(button.dataset.pickerPokemon));input.value=displayPokemonName(p);close();input.dispatchEvent(new Event('change',{bubbles:true}))})};input.oninput=show;input.onfocus=()=>{if(input.value.trim())show()};input.onkeydown=event=>{if(event.key==='Escape')close()};input.onblur=()=>setTimeout(close,150)})}
   const safariZoneMapUrl='https://www.ign.com/maps/pokemon-firered-leafgreen-version/kanto?marker=539963,539969,539975,539964';
   const atlasMapPositions={
     'route1':[18.2,58.8],'route2':[17.2,39.9],'route3':[32.8,20.7],'route4':[58.8,15.4],'route5':[70.2,23.1],'route6':[71.1,44.3],'route7':[61.4,36],'route8':[86.5,36],'route9':[87.7,15.2],'route10':[97.2,18.4],'route11':[85.3,55.1],'route12':[97.4,48.4],'route13':[88.2,69.8],'route14':[80.1,75.4],'route15':[69.7,81.1],'route16':[39.3,35],'route17':[36,58.1],'route18':[40.7,80],'route19':[53.7,95.2],'route20':[28.8,97.2],'route21':[17.9,83.7],'route22':[8.5,50.4],'route23':[2.8,33],'route24':[70.9,8.3],'route25':[80.8,2.7],
@@ -437,8 +454,8 @@
   async function uploadCloud(force=false){const code=normalizeSyncCode(),snapshot=await checkCloud();if(['cloud-newer','conflict'].includes(state.syncStatus)&&!force)throw new Error('Cloud changes were found. Choose which copy to keep.');if(state.syncStatus==='in-sync'&&!force)return toast('Already in sync');const cloudRevision=snapshot.cloudSave?.sync?.revision||0;if(state.saveMeta.revision<=cloudRevision){state.saveMeta.revision=cloudRevision+1;state.saveMeta.modifiedAt=new Date().toISOString();localStorage.setItem(syncKeys.meta,JSON.stringify(state.saveMeta))}const save=createSave(snapshot.cloudSave?cloudRevision:null),fp=await fingerprint(save),{id,envelope}=await encryptSave(save,code),response=await fetch(`${syncEndpoint}/saves/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(envelope)});if(response.status===409){await checkCloud();throw new Error('The cloud changed during upload. Check status and choose a copy.')}if(!response.ok)throw new Error('The encrypted save could not be uploaded.');recordBaseline(code,save,fp);state.syncSnapshot={id,envelope,cloudSave:save,cloudFingerprint:fp,localFingerprint:fp};state.syncStatus='in-sync';render();toast('Encrypted save uploaded')}
   async function downloadCloud(force=false){const code=normalizeSyncCode(),snapshot=await checkCloud();if(!snapshot.cloudSave)throw new Error('No cloud save exists for this code yet.');if(['local-newer','conflict'].includes(state.syncStatus)&&!force)throw new Error('This device also has changes. Choose which copy to keep.');applySave(snapshot.cloudSave,'cloud');recordBaseline(code,snapshot.cloudSave,snapshot.cloudFingerprint);state.syncStatus='in-sync';render();toast('Cloud save loaded')}
   async function loadHistory(){const code=normalizeSyncCode(),{id}=await syncIdentity(code),response=await fetch(`${syncEndpoint}/saves/${id}/history`);if(!response.ok)throw new Error('Recovery versions could not be loaded.');state.cloudHistory=(await response.json()).versions||[];render()}
-  function renderSave(){const [title,detail]=syncMessage(state.syncStatus),configured=Boolean(syncEndpoint),disabled=configured?'':'disabled';return `<header class="page-head"><div><span class="eyebrow">PORTABLE PROGRESS</span><h1>Save &amp; Sync</h1><p>Back up this browser or move your caught Pokédex securely between devices.</p></div></header><section class="save-summary"><article><span>Caught</span><strong>${state.caught.size}</strong></article><article><span>Local revision</span><strong>${state.saveMeta.revision}</strong></article><article><span>Last changed</span><strong>${saveDate(state.saveMeta.modifiedAt)}</strong></article></section><section class="save-grid"><article class="save-panel"><span class="eyebrow">OFFLINE BACKUP</span><h2>Export or import a save file</h2><p>Keep a JSON backup of your caught Pokémon without using cloud sync.</p><div class="save-actions"><button id="exportSave" class="primary">Export save</button><button id="importSave" class="secondary">Import save</button><input id="importSaveFile" type="file" accept="application/json,.json" hidden></div></article><article class="save-panel"><span class="eyebrow">ENCRYPTED CLOUD SYNC</span><h2>Use one short private code</h2><p>Your save is encrypted before upload. Keep the code private: anyone who has it can access the save.</p><label class="sync-code"><span>Private sync code</span><input id="syncCode" value="${esc(state.syncCode)}" maxlength="14" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label><p class="sync-service ${configured?'connected':''}">${configured?'Cloud service connected.':'Cloud service needs its one-time Cloudflare setup.'}</p><section class="sync-freshness ${state.syncStatus}"><span>SAVE FRESHNESS</span><strong>${title}</strong><p>${detail}</p></section>${['cloud-newer','conflict'].includes(state.syncStatus)?`<div class="sync-choice"><strong>Choose the copy to keep</strong><button data-sync="keep-local">Keep this device</button><button data-sync="keep-cloud">Use cloud save</button></div>`:''}<div class="save-actions"><button data-sync="create" class="primary">Create code</button><button data-sync="copy" class="secondary">Copy</button><button data-sync="check" class="secondary" ${disabled}>Check latest</button><button data-sync="upload" class="secondary" ${disabled}>Save to cloud</button><button data-sync="download" class="secondary" ${disabled}>Load from cloud</button><button data-sync="forget" class="text-action">Forget code</button></div><details class="sync-recovery"><summary>Recovery versions</summary><button data-sync="history" ${disabled}>Check cloud versions</button><div>${state.cloudHistory.map(v=>`<p><b>Revision ${v.revision}</b><span>${saveDate(v.modifiedAt||v.updatedAt)}</span></p>`).join('')||'<p>No cloud versions checked yet.</p>'}</div></details></article></section>`}
-  function renderProgress(){ const pct=Math.round(state.caught.size/Math.max(groups.length,1)*100),byDex=new Map(groups.map(group=>[group.dexId,group])),caught=[...state.caught].reverse().map(id=>byDex.get(id)).filter(Boolean); return `<header class="page-head"><div><span class="eyebrow">YOUR JOURNEY</span><h1>Dex progress</h1><p>Stored locally in this browser.</p></div></header><section class="progress-hero"><div class="big-ring" style="--pct:${pct*3.6}deg"><div><strong>${pct}%</strong><span>${state.caught.size} / ${groups.length}</span></div></div><div><span class="eyebrow">CURRENT RUN</span><h2>${state.caught.size?`${state.caught.size} Pokémon secured`:'Your Pokédex is ready'}</h2><p>Open any Pokémon card and use the caught button, or tap the circle directly on a card.</p><button class="primary" data-view="pokedex">Continue catching</button></div></section><section class="caught-list">${caught.slice(0,18).map(g=>{const p=activeForm(g);return `<button data-pokemon="${p.id}"><img src="${p.sprite}" alt=""><span>${esc(g.name)}</span><b>✓</b></button>`}).join('')||'<p class="empty">Caught Pokémon will appear here.</p>'}</section>`; }
+  function renderSave(){const [title,detail]=syncMessage(state.syncStatus),configured=Boolean(syncEndpoint),disabled=configured?'':'disabled';return `<header class="page-head"><div><span class="eyebrow">PORTABLE PROGRESS</span><h1>Save &amp; Sync</h1><p>Back up this browser or move your caught Pokédex securely between devices.</p></div></header><section class="save-summary"><article><span>Caught</span><strong>${state.caught.size}</strong></article><article><span>Local revision</span><strong>${state.saveMeta.revision}</strong></article><article><span>Last changed</span><strong>${saveDate(state.saveMeta.modifiedAt)}</strong></article></section><section class="save-grid"><article class="save-panel"><span class="eyebrow">OFFLINE BACKUP</span><h2>Export or import a save file</h2><p>Keep a JSON backup of your caught Pokémon without using cloud sync.</p><div class="save-actions"><button id="exportSave" class="primary">Export save</button><button id="importSave" class="secondary">Import save</button><input id="importSaveFile" type="file" accept="application/json,.json" hidden></div></article><article class="save-panel"><span class="eyebrow">GAME SAVE FILE</span><h2>Import from your Radical Red .sav / .srm</h2><p>Read your current party and every Pokémon in your party or PC boxes straight from a Radical Red save file, and mark them all caught here. This replaces this device's caught list and team.</p>${fsAccessSupported?(state.savFileHandle?`<p class="save-file-status connected">Linked to <strong>${esc(state.savFileName)}</strong> on this device.</p><div class="save-actions"><button data-sav="sync" class="primary">Sync now</button><button data-sav="connect" class="secondary">Choose a different file</button><button data-sav="disconnect" class="text-action">Disconnect</button></div>`:`<p class="save-file-status">Link a .sav file on this device to re-sync anytime without re-uploading it.</p><div class="save-actions"><button data-sav="connect" class="primary">Connect .sav file</button></div>`):`<div class="save-actions"><button id="importSavButton" class="secondary">Import .sav file</button><input id="importSavFileInput" type="file" accept=".sav,.srm" hidden></div><p class="save-file-status">This browser can't keep a save file linked — pick the file again each time you want to sync.</p>`}</article><article class="save-panel"><span class="eyebrow">ENCRYPTED CLOUD SYNC</span><h2>Use one short private code</h2><p>Your save is encrypted before upload. Keep the code private: anyone who has it can access the save.</p><label class="sync-code"><span>Private sync code</span><input id="syncCode" value="${esc(state.syncCode)}" maxlength="14" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label><p class="sync-service ${configured?'connected':''}">${configured?'Cloud service connected.':'Cloud service needs its one-time Cloudflare setup.'}</p><section class="sync-freshness ${state.syncStatus}"><span>SAVE FRESHNESS</span><strong>${title}</strong><p>${detail}</p></section>${['cloud-newer','conflict'].includes(state.syncStatus)?`<div class="sync-choice"><strong>Choose the copy to keep</strong><button data-sync="keep-local">Keep this device</button><button data-sync="keep-cloud">Use cloud save</button></div>`:''}<div class="save-actions"><button data-sync="create" class="primary">Create code</button><button data-sync="copy" class="secondary">Copy</button><button data-sync="check" class="secondary" ${disabled}>Check latest</button><button data-sync="upload" class="secondary" ${disabled}>Save to cloud</button><button data-sync="download" class="secondary" ${disabled}>Load from cloud</button><button data-sync="forget" class="text-action">Forget code</button></div><details class="sync-recovery"><summary>Recovery versions</summary><button data-sync="history" ${disabled}>Check cloud versions</button><div>${state.cloudHistory.map(v=>`<p><b>Revision ${v.revision}</b><span>${saveDate(v.modifiedAt||v.updatedAt)}</span></p>`).join('')||'<p>No cloud versions checked yet.</p>'}</div></details></article></section>`}
+  function renderProgress(){ const pct=Math.round(state.caught.size/Math.max(groups.length,1)*100),byDex=new Map(groups.map(group=>[group.dexId,group])),caught=[...state.caught].reverse().map(id=>byDex.get(id)).filter(Boolean); return `<header class="page-head"><div><span class="eyebrow">YOUR JOURNEY</span><h1>Dex progress</h1><p>Stored locally in this browser.</p></div></header><section class="progress-hero"><div class="big-ring" style="--pct:${pct*3.6}deg"><div><strong>${pct}%</strong><span>${state.caught.size} / ${groups.length}</span></div></div><div><span class="eyebrow">CURRENT RUN</span><h2>${state.caught.size?`${state.caught.size} Pokémon secured`:'Your Pokédex is ready'}</h2><p>Open any Pokémon card and use the caught button, or tap the circle directly on a card.</p><button class="primary" data-view="pokedex">Continue catching</button></div></section><section class="caught-list">${caught.map(g=>{const p=activeForm(g);return `<button data-pokemon="${p.id}"><img src="${p.sprite}" alt=""><span>${esc(g.name)}</span><b>✓</b></button>`}).join('')||'<p class="empty">Caught Pokémon will appear here.</p>'}</section>`; }
   function saveFutureTeam(){localStorage.setItem(syncKeys.futureTeam,JSON.stringify(state.futureTeam));state.saveMeta.revision++;state.saveMeta.modifiedAt=new Date().toISOString();localStorage.setItem(syncKeys.meta,JSON.stringify(state.saveMeta));state.syncSnapshot=null;state.syncStatus=state.syncCode&&syncEndpoint?'local-newer':'unchecked'}
   function futureMoveMethod(p,id){for(const form of moveLearningForms(p)){const inherited=form.id!==p.id,suffix=inherited?` as ${moveLearningFormLabel(form)}, then change forme with the Gracidea`:'';const levels=(form.learnset?.level||[]).filter(entry=>Number(entry.moveId)===Number(id)).map(entry=>Number(entry.level)).sort((a,b)=>a-b);if(levels.length)return`Learn at level ${levels[0]}${suffix}`;if((form.learnset?.tm||[]).some(moveId=>Number(moveId)===Number(id)))return`Obtain and teach its TM/HM${suffix}`;if((form.learnset?.tutor||[]).some(moveId=>Number(moveId)===Number(id)))return`Visit a compatible Move Tutor${suffix}`}return'Inherited from an earlier evolution or special source'}
   function futurePlan(slot,index){const p=pokemonById.get(Number(slot.pokemonId));if(!p)return null;const ancestors=evolutionLinks(p,'from'),targetCaught=state.caught.has(String(p.dexId)),caughtAncestor=ancestors.find(entry=>state.caught.has(String(entry.pokemon.dexId))),relatedIds=new Set([p.id,...ancestors.map(entry=>entry.pokemon.id)]),current=state.team.find(entry=>relatedIds.has(Number(entry.pokemonId))),source=[...ancestors].reverse().map(entry=>entry.pokemon).find(entry=>pokemonLocations(entry).length)||p,locations=pokemonLocations(source),moveIds=(slot.moves||[]).filter(Boolean),denominator=70+moveIds.length*7.5;let earned=targetCaught?40:caughtAncestor?20:0;if(current?.nature===slot.nature)earned+=10;if(current?.ability===slot.ability)earned+=10;if(current&&(current.heldItem||'')===(slot.heldItem||''))earned+=10;moveIds.forEach(id=>{if((current?.moves||[]).some(move=>String(move)===String(id)))earned+=7.5});const percent=Math.round(earned/denominator*100),steps=[];if(targetCaught)steps.push({done:true,title:`${displayPokemonName(p)} obtained`,detail:'Marked as caught in your Pokédex.'});else if(caughtAncestor)steps.push({done:false,title:`Evolve ${displayPokemonName(caughtAncestor.pokemon)}`,detail:caughtAncestor.method||`Follow the evolution chain to ${displayPokemonName(p)}.`});else steps.push({done:false,title:`Catch ${displayPokemonName(source)}`,detail:locations.length?locations.slice(0,3).map(entry=>`${entry.location}${entry.period==='special'?'':` (${entry.period})`}`).join(' · '):'No encounter is documented; check its Pokédex acquisition notes.'});steps.push({done:current?.nature===slot.nature,title:`Set ${slot.nature} nature`,detail:current?'Compared with the related Pokémon in Team Builder.':'Add the Pokémon or its precursor to Team Builder to track this.'});steps.push({done:current?.ability===slot.ability,title:`Prepare ${slot.ability||'an ability'}`,detail:(p.abilities||[]).find(entry=>entry.name===slot.ability)?.description||'Choose the intended ability for the final build.'});if(slot.heldItem)steps.push({done:current?.heldItem===slot.heldItem,title:`Find ${itemData.find(item=>String(item.id)===String(slot.heldItem))?.name||'the held item'}`,detail:itemData.find(item=>String(item.id)===String(slot.heldItem))?.locations?.slice(0,2).join(' · ')||'See the Items tab for acquisition details.'});moveIds.forEach(id=>{const move=moveById.get(Number(id));if(move)steps.push({done:(current?.moves||[]).some(selected=>String(selected)===String(id)),title:`Learn ${move.name}`,detail:futureMoveMethod(p,id)})});return{p,percent,steps,index}}
@@ -507,12 +524,601 @@
     root.querySelector('[data-apply-dex-filters]')?.addEventListener('click',()=>{const filters=blankDexFilters();root.querySelectorAll('[data-dex-filter-group]:checked').forEach(input=>filters[input.dataset.dexFilterGroup].push(input.value));filters.bstMin=root.querySelector('#dexBstMin')?.value||'';filters.bstMax=root.querySelector('#dexBstMax')?.value||'';state.dexFilters=filters;state.dexFilterOpen=false;state.visible=50;render()});
     root.querySelectorAll('[data-remove-dex-filter]').forEach(button=>button.addEventListener('click',()=>{const [group,value]=button.dataset.removeDexFilter.split(':');if(group==='bst'){state.dexFilters.bstMin='';state.dexFilters.bstMax=''}else state.dexFilters[group]=state.dexFilters[group].filter(item=>item!==value);state.visible=50;render()}));
   }
-  function bindSave(root){const exportButton=root.querySelector('#exportSave'),importButton=root.querySelector('#importSave'),importFile=root.querySelector('#importSaveFile'),codeInput=root.querySelector('#syncCode');if(exportButton)exportButton.onclick=()=>{const blob=new Blob([JSON.stringify(createSave(),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`radical-red-field-guide-save-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);toast('Save exported')};if(importButton)importButton.onclick=()=>importFile.click();if(importFile)importFile.onchange=async e=>{try{if(!e.target.files?.[0]||!confirm('Replace this device\'s current caught progress with the imported save?'))return;applySave(JSON.parse(await e.target.files[0].text()));render();toast('Save imported')}catch(error){alert(error.message)}};if(codeInput)codeInput.oninput=e=>{const raw=e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,12);e.target.value=raw.match(/.{1,4}/g)?.join('-')||'';state.syncCode=e.target.value;if(syncCodePattern.test(state.syncCode))localStorage.setItem(syncKeys.code,state.syncCode);state.syncStatus='unchecked'};root.querySelectorAll('[data-sync]').forEach(button=>button.onclick=async()=>{try{button.disabled=true;const action=button.dataset.sync;if(action==='create'){state.syncCode=generateSyncCode();localStorage.setItem(syncKeys.code,state.syncCode);state.syncContext={code:state.syncCode,lastSyncedRevision:null,lastSyncedFingerprint:'',lastSyncedAt:null};localStorage.setItem(syncKeys.context,JSON.stringify(state.syncContext));state.syncStatus='unchecked';render();toast('Private sync code created')}else if(action==='copy'){await navigator.clipboard.writeText(normalizeSyncCode());toast('Sync code copied')}else if(action==='check'){await checkCloud();toast('Latest cloud version checked')}else if(action==='upload')await uploadCloud();else if(action==='download')await downloadCloud();else if(action==='keep-local'){if(confirm('Replace the cloud copy with this device?'))await uploadCloud(true)}else if(action==='keep-cloud'){if(confirm('Replace this device with the cloud copy? A local backup will be kept.'))await downloadCloud(true)}else if(action==='history')await loadHistory();else if(action==='forget'){state.syncCode='';state.syncContext={code:'',lastSyncedRevision:null,lastSyncedFingerprint:'',lastSyncedAt:null};localStorage.removeItem(syncKeys.code);localStorage.removeItem(syncKeys.context);state.syncStatus='unchecked';render();toast('Sync code forgotten on this device')}}catch(error){alert(error.message);button.disabled=false}})}
+  // Radical Red's save format was reverse engineered against a real save file plus the
+  // reference implementation used by the community's rr-damage-calc tool (its .sav parser),
+  // since it diverges from vanilla FireRed in several ways: a shifted text charset, no PID
+  // encryption/shuffling on Pokémon substructures, a compact 58-byte (vs vanilla 80-byte) PC
+  // box entry format, 25 PC boxes (vs vanilla 14) crammed into leftover section padding, and
+  // internal species IDs that only match the National Dex number for the original ~411 species.
+  const GEN3_CHARMAP=(()=>{const map={0:' ',80:'▯',161:'0',162:'1',163:'2',164:'3',165:'4',166:'5',167:'6',168:'7',169:'8',170:'9',171:'!',172:'?',173:'.',174:'-',175:'・',176:'...',177:'“',178:'”',179:'‘',180:'’',181:'♂',182:'♀',183:'$',184:',',185:'×',186:'/'};for(let i=0;i<26;i++)map[187+i]=String.fromCharCode(65+i);for(let i=0;i<26;i++)map[213+i]=String.fromCharCode(97+i);return map})();
+  function decodeGen3Text(bytes){let out='';for(const b of bytes){if(b===255)break;out+=GEN3_CHARMAP[b]??''}return out.trim()}
+  function parseGen3Save(buffer){
+    const view=new Uint8Array(buffer);
+    const SECTION_SIZE=4096,DATA_LEN=4080,SIGNATURE=0x08012025,BOX_MON_SIZE=58,BOX_STRIDE=BOX_MON_SIZE*30;
+    const EXTRA_LEN={0:204,4:600,13:2976},EXTRA_OFFSET={0:DATA_LEN-204,4:DATA_LEN-600,13:DATA_LEN-2976};
+    if(!buffer||buffer.byteLength<SECTION_SIZE*28)throw new Error('This does not look like a Pokémon save file.');
+    const readSection=base=>{if(base+SECTION_SIZE>buffer.byteLength)return null;const footer=new DataView(buffer,base,SECTION_SIZE);return{id:footer.getUint16(0xFF4,true),signature:footer.getUint32(0xFF8,true),saveIndex:footer.getUint32(0xFFC,true),data:new Uint8Array(buffer,base,DATA_LEN)}};
+    const readBlock=startIndex=>{const sections=[];for(let i=0;i<14;i++){const sec=readSection((startIndex+i)*SECTION_SIZE);if(!sec)return null;sections.push(sec)}return sections};
+    const blockA=readBlock(0),blockB=readBlock(14);
+    const validBlock=b=>b&&b.every(sec=>sec.signature===SIGNATURE);
+    const maxSaveIndex=b=>Math.max(...b.map(sec=>sec.saveIndex));
+    let active;
+    if(validBlock(blockA)&&validBlock(blockB))active=maxSaveIndex(blockA)>=maxSaveIndex(blockB)?blockA:blockB;
+    else if(validBlock(blockA))active=blockA;
+    else if(validBlock(blockB))active=blockB;
+    else throw new Error('No valid Pokémon save data was found in this file.');
+    const byId={};active.forEach(sec=>{byId[sec.id]=sec});
+    if(!byId[0]||!byId[1])throw new Error('This save file is missing required sections.');
+    const readU16=(bytes,off)=>bytes[off]|(bytes[off+1]<<8);
+    const readU32=(bytes,off)=>(bytes[off]|(bytes[off+1]<<8)|(bytes[off+2]<<16)|(bytes[off+3]<<24))>>>0;
+    const readBits=(bytes,off,shift,length)=>((bytes[off]||0)|(bytes[off+1]||0)<<8)>>shift&(1<<length)-1;
+    const trainerName=decodeGen3Text(byId[0].data.subarray(0,7));
+    const tid=readU16(byId[0].data,10);
+    const sb1=new Uint8Array(DATA_LEN*4);[1,2,3,4].forEach((id,i)=>{if(byId[id])sb1.set(byId[id].data,DATA_LEN*i)});
+    const readPartyMon=bytes=>{const species=readU16(bytes,32);if(!species)return null;const ivField=readU32(bytes,72);return{species,personalityValue:readU32(bytes,0),nickname:decodeGen3Text(bytes.subarray(8,18)),heldItem:readU16(bytes,34),experience:readU32(bytes,36),moves:[readU16(bytes,44),readU16(bytes,46),readU16(bytes,48),readU16(bytes,50)],isEgg:Boolean(ivField>>30&1),hasHiddenAbility:Boolean(ivField>>31&1)}};
+    const partyCount=Math.min(sb1[52],6);
+    const party=[];for(let i=0;i<partyCount;i++){const mon=readPartyMon(sb1.subarray(56+i*100,56+i*100+100));if(mon)party.push(mon)}
+    const readBoxMon=bytes=>{const species=readU16(bytes,28);if(!species)return null;const ivField=readU32(bytes,54);return{species,personalityValue:readU32(bytes,0),nickname:decodeGen3Text(bytes.subarray(8,18)),heldItem:readU16(bytes,30),experience:readU32(bytes,32),moves:[readBits(bytes,39,0,10),readBits(bytes,40,2,10),readBits(bytes,41,4,10),readBits(bytes,42,6,10)],isEgg:Boolean(ivField>>30&1),hasHiddenAbility:Boolean(ivField>>31&1)}};
+    const readBox=(buf,offset)=>{const mons=[];for(let i=0;i<30;i++){const off=offset+BOX_MON_SIZE*i;if(off+BOX_MON_SIZE>buf.length)break;const mon=readBoxMon(buf.subarray(off,off+BOX_MON_SIZE));if(mon)mons.push(mon)}return mons};
+    const boxes=[];
+    const sectionCount=Math.floor(33060/DATA_LEN);
+    const boxBuffer=new Uint8Array(DATA_LEN*sectionCount+424);
+    for(let i=0;i<=sectionCount;i++){const sec=byId[5+i];if(!sec)continue;boxBuffer.set(sec.data.subarray(0,i<sectionCount?DATA_LEN:424),DATA_LEN*i)}
+    for(let i=0;i<19;i++)boxes.push(readBox(boxBuffer,4+i*BOX_STRIDE));
+    const extraBuffer=new Uint8Array(11940);
+    {let offset=0;[0,4,13].forEach(id=>{const sec=byId[id];if(!sec)return;extraBuffer.set(sec.data.subarray(EXTRA_OFFSET[id],EXTRA_OFFSET[id]+EXTRA_LEN[id]),offset);offset+=EXTRA_LEN[id]});const sec30=readSection(30*SECTION_SIZE),sec31=readSection(31*SECTION_SIZE);if(sec30){extraBuffer.set(sec30.data,offset);offset+=DATA_LEN}if(sec31)extraBuffer.set(sec31.data,offset)}
+    for(let i=19;i<22;i++)boxes.push(readBox(extraBuffer,6608+(i-19)*BOX_STRIDE));
+    if(byId[2]&&byId[3]){const stitched=new Uint8Array(BOX_STRIDE);stitched.set(byId[2].data.subarray(3864,DATA_LEN),0);stitched.set(byId[3].data.subarray(0,BOX_STRIDE-216),216);boxes.push(readBox(stitched,0));boxes.push(readBox(byId[3].data,1524))}else{boxes.push([]);boxes.push([])}
+    boxes.push(readBox(byId[0].data,176));
+    return{trainerName,tid,party,boxes}
+  }
+  function resolveGen3Species(internalIndex){const entry=(window.RR_SAVE_SPECIES?.species||{})[internalIndex];return entry?{dexId:entry[0],growthCode:entry[1]}:null}
+  function gen3Level(experience,growthCode){const table=(window.RR_SAVE_SPECIES?.exp||[])[growthCode]||[];for(let level=1;level<=100;level++)if(experience<table[level])return level;return 100}
+  // Writing a new Pokémon into the save requires the encoder side of the same format: locating a
+  // free PC box slot (which, for 6 of the 25 boxes, is physically split across two save sections
+  // due to Radical Red packing extra boxes into leftover padding — see the box-plan builder below)
+  // and recomputing that section's checksum. The checksum algorithm and the exact byte length it
+  // covers per section id (full 4080 bytes normally, but only the non-repurposed prefix for the
+  // three sections Radical Red raided for extra box storage) were both confirmed by brute-forcing
+  // against every section and every boxed Pokémon in a real save file until every value matched.
+  const GEN3_REVERSE_CHARMAP=(()=>{const map={};for(const [code,ch] of Object.entries(GEN3_CHARMAP))map[ch]=Number(code);return map})();
+  function encodeGen3Text(text,len){const out=new Uint8Array(len).fill(0xFF);let i=0;for(const ch of String(text||'')){if(i>=len-1)break;const code=GEN3_REVERSE_CHARMAP[ch];if(code===undefined)continue;out[i++]=code}return out}
+  const SAV_SECTION_SIZE=4096,SAV_DATA_LEN=4080,SAV_SIGNATURE=0x08012025,SAV_BOX_MON_SIZE=58,SAV_BOX_STRIDE=SAV_BOX_MON_SIZE*30;
+  const SAV_EXTRA_LEN={0:204,4:600,13:2976},SAV_EXTRA_OFFSET={0:SAV_DATA_LEN-204,4:SAV_DATA_LEN-600,13:SAV_DATA_LEN-2976};
+  const SAV_CHECKSUM_LEN={0:3876,4:3480,13:1104};
+  // Radical Red's expanded Pokédex seen/owned bitfields (vanilla FireRed's are only 49 bytes,
+  // far too small for RR's 1000+ species dex) were located the same way as the box format: by
+  // scanning section id1 of a real save for a byte range whose bits, read dex-id-1/LSB-first,
+  // are a superset of every species actually held in that save's party+PC, with the owned set
+  // itself a strict subset of a second, denser candidate region (the seen flags) — both held
+  // exactly once in the whole section, confirming the offsets and 164-byte field length below.
+  const SAV_DEX_SEEN_OFFSET=784,SAV_DEX_OWNED_OFFSET=948,SAV_DEX_FLAGS_LEN=164;
+  function setSavPokedexFlags(sections,dexId){
+    if(!dexId||dexId<1||dexId>SAV_DEX_FLAGS_LEN*8)return false;
+    const sec=sections.byId[1];
+    if(!sec)return false;
+    const bitIndex=dexId-1,byteIdx=Math.floor(bitIndex/8),mask=1<<(bitIndex%8);
+    sec.data[SAV_DEX_SEEN_OFFSET+byteIdx]|=mask;
+    sec.data[SAV_DEX_OWNED_OFFSET+byteIdx]|=mask;
+    recomputeSavChecksum(sec);
+    return true;
+  }
+  const dexIdToInternalSpecies=(()=>{const map=new Map();const species=(window.RR_SAVE_SPECIES||{}).species||{};Object.keys(species).forEach(key=>{const dexId=species[key][0];if(!map.has(dexId))map.set(dexId,Number(key))});return map})();
+  function parseGen3SaveSections(buffer){
+    if(!buffer||buffer.byteLength<SAV_SECTION_SIZE*28)throw new Error('This does not look like a Pokémon save file.');
+    const readSection=base=>{if(base+SAV_SECTION_SIZE>buffer.byteLength)return null;const footer=new DataView(buffer,base,SAV_SECTION_SIZE);return{id:footer.getUint16(0xFF4,true),signature:footer.getUint32(0xFF8,true),saveIndex:footer.getUint32(0xFFC,true),data:new Uint8Array(buffer,base,SAV_DATA_LEN),footer}};
+    const readBlock=startIndex=>{const sections=[];for(let i=0;i<14;i++){const sec=readSection((startIndex+i)*SAV_SECTION_SIZE);if(!sec)return null;sections.push(sec)}return sections};
+    const blockA=readBlock(0),blockB=readBlock(14);
+    const validBlock=b=>b&&b.every(sec=>sec.signature===SAV_SIGNATURE);
+    const maxSaveIndex=b=>Math.max(...b.map(sec=>sec.saveIndex));
+    let active;
+    if(validBlock(blockA)&&validBlock(blockB))active=maxSaveIndex(blockA)>=maxSaveIndex(blockB)?blockA:blockB;
+    else if(validBlock(blockA))active=blockA;
+    else if(validBlock(blockB))active=blockB;
+    else throw new Error('No valid Pokémon save data was found in this file.');
+    const byId={};active.forEach(sec=>{byId[sec.id]=sec});
+    if(!byId[0]||!byId[1])throw new Error('This save file is missing required sections.');
+    return{byId,sec30:readSection(30*SAV_SECTION_SIZE),sec31:readSection(31*SAV_SECTION_SIZE)};
+  }
+  function savConcatPlan(chunks){let pos=0;return chunks.map(c=>{const len=c.srcEnd-c.srcStart,withLog={sec:c.sec,srcStart:c.srcStart,srcEnd:c.srcEnd,logStart:pos,logEnd:pos+len};pos+=len;return withLog})}
+  function savSliceLogical(plan,offset,length){const end=offset+length,result=[];for(const c of plan){const overlapStart=Math.max(c.logStart,offset),overlapEnd=Math.min(c.logEnd,end);if(overlapStart<overlapEnd)result.push({sec:c.sec,srcStart:c.srcStart+(overlapStart-c.logStart),srcEnd:c.srcStart+(overlapEnd-c.logStart),destStart:overlapStart-offset})}return result}
+  function buildSavBoxPlans(sections){
+    const {byId,sec30,sec31}=sections;
+    const plans=[];
+    const sectionCount=Math.floor(33060/SAV_DATA_LEN);
+    const boxChunks=[];
+    for(let i=0;i<=sectionCount;i++){const sec=byId[5+i];if(!sec)continue;boxChunks.push({sec,srcStart:0,srcEnd:i<sectionCount?SAV_DATA_LEN:424})}
+    const boxPlan=savConcatPlan(boxChunks);
+    for(let i=0;i<19;i++)plans.push(savSliceLogical(boxPlan,4+i*SAV_BOX_STRIDE,SAV_BOX_STRIDE));
+    const extraChunks=[];
+    [0,4,13].forEach(id=>{const sec=byId[id];if(!sec)return;extraChunks.push({sec,srcStart:SAV_EXTRA_OFFSET[id],srcEnd:SAV_EXTRA_OFFSET[id]+SAV_EXTRA_LEN[id]})});
+    if(sec30)extraChunks.push({sec:sec30,srcStart:0,srcEnd:SAV_DATA_LEN});
+    if(sec31)extraChunks.push({sec:sec31,srcStart:0,srcEnd:SAV_DATA_LEN});
+    const extraPlan=savConcatPlan(extraChunks);
+    for(let i=19;i<22;i++)plans.push(savSliceLogical(extraPlan,6608+(i-19)*SAV_BOX_STRIDE,SAV_BOX_STRIDE));
+    if(byId[2]&&byId[3]){
+      const stitchPlan=savConcatPlan([{sec:byId[2],srcStart:3864,srcEnd:SAV_DATA_LEN},{sec:byId[3],srcStart:0,srcEnd:SAV_BOX_STRIDE-216}]);
+      plans.push(savSliceLogical(stitchPlan,0,SAV_BOX_STRIDE));
+      plans.push(savSliceLogical(savConcatPlan([{sec:byId[3],srcStart:0,srcEnd:SAV_DATA_LEN}]),1524,SAV_BOX_STRIDE));
+    } else { plans.push([]); plans.push([]) }
+    plans.push(byId[0]?savSliceLogical(savConcatPlan([{sec:byId[0],srcStart:0,srcEnd:SAV_DATA_LEN}]),176,SAV_BOX_STRIDE):[]);
+    return plans;
+  }
+  function savReadSlotSpecies(plan,slotIndex){const slotStart=slotIndex*SAV_BOX_MON_SIZE;let lo=0,hi=0;for(const chunk of plan){const cs=chunk.destStart,ce=cs+(chunk.srcEnd-chunk.srcStart);for(let logByte=Math.max(cs,slotStart+28);logByte<Math.min(ce,slotStart+30);logByte++){const val=chunk.sec.data[chunk.srcStart+(logByte-cs)];if(logByte===slotStart+28)lo=val;else hi=val}}return lo|(hi<<8)}
+  function findEmptySavSlot(plans){for(let b=0;b<plans.length;b++){const plan=plans[b];if(!plan.length)continue;for(let s=0;s<30;s++)if(savReadSlotSpecies(plan,s)===0)return{boxIndex:b,slotIndex:s,plan}}return null}
+  function writeSavSlotBytes(plan,slotIndex,bytes58){const slotStart=slotIndex*SAV_BOX_MON_SIZE,touched=new Set();for(const chunk of plan){const cs=chunk.destStart,ce=cs+(chunk.srcEnd-chunk.srcStart);for(let logByte=Math.max(cs,slotStart);logByte<Math.min(ce,slotStart+SAV_BOX_MON_SIZE);logByte++){chunk.sec.data[chunk.srcStart+(logByte-cs)]=bytes58[logByte-slotStart];touched.add(chunk.sec)}}return touched}
+  function recomputeSavChecksum(sec){const length=SAV_CHECKSUM_LEN[sec.id]??SAV_DATA_LEN,dv=new DataView(sec.data.buffer,sec.data.byteOffset,length);let sum=0>>>0;for(let i=0;i+4<=length;i+=4)sum=(sum+dv.getUint32(i,true))>>>0;const checksum=((sum>>>16)+(sum&0xFFFF))&0xFFFF;sec.footer.setUint16(0xFF6,checksum,true);return checksum}
+  function findSavPid({tid,sid,natureIndex,abilitySlot,forceHiddenAbility,shiny}){
+    const abilityOk=pid=>forceHiddenAbility||(pid&1)===abilitySlot;
+    const isShiny=pid=>((tid^sid^(pid>>>16)^(pid&0xFFFF))&0xFFFF)<8;
+    if(shiny){
+      for(let low=0;low<65536;low++){const high=(tid^sid^low)&0xFFFF,pid=(((high<<16)>>>0)|low)>>>0;if(pid%25===natureIndex&&abilityOk(pid))return pid}
+      throw new Error('Could not generate a Pokémon matching that nature, ability and shininess.');
+    }
+    for(let attempt=0;attempt<500000;attempt++){const pid=Math.floor(Math.random()*0x100000000)>>>0;if(pid%25===natureIndex&&abilityOk(pid)&&!isShiny(pid))return pid}
+    throw new Error('Could not generate a Pokémon matching that nature and ability.');
+  }
+  function encodeSavBoxMon({species,level,shiny,nickname,otName,heldItem,moves,tid,sid,natureIndex,abilitySlot,forceHiddenAbility}){
+    const growthCode=resolveGen3Species(species)?.growthCode;
+    if(growthCode===undefined)throw new Error('This Pokémon is not recognized by the save file format yet.');
+    const expTable=(window.RR_SAVE_SPECIES?.exp||[])[growthCode]||[];
+    const bytes=new Uint8Array(SAV_BOX_MON_SIZE);
+    const writeU16=(off,val)=>{bytes[off]=val&0xFF;bytes[off+1]=(val>>8)&0xFF};
+    const writeU32=(off,val)=>{bytes[off]=val&0xFF;bytes[off+1]=(val>>8)&0xFF;bytes[off+2]=(val>>16)&0xFF;bytes[off+3]=(val>>>24)&0xFF};
+    const pid=findSavPid({tid,sid,natureIndex,abilitySlot,forceHiddenAbility,shiny});
+    writeU32(0,pid>>>0);
+    writeU32(4,(((sid<<16)>>>0)|tid)>>>0);
+    bytes.set(encodeGen3Text(nickname,10),8);
+    bytes[18]=2;bytes[19]=2;
+    bytes.set(encodeGen3Text(otName,7),20);
+    bytes[27]=0;
+    writeU16(28,species);
+    writeU16(30,heldItem||0);
+    writeU32(32,expTable[level]??0);
+    bytes[36]=0;bytes[37]=50;bytes[38]=14;
+    let bits=0n;moves.forEach((m,i)=>{bits|=(BigInt(m||0)&1023n)<<BigInt(i*10)});
+    for(let i=0;i<5;i++)bytes[39+i]=Number((bits>>BigInt(i*8))&0xFFn);
+    bytes[51]=0;
+    bytes[52]=level;
+    bytes[53]=2;
+    let ivField=0x3FFFFFFF>>>0;
+    if(forceHiddenAbility)ivField|=(1<<31);
+    writeU32(54,ivField>>>0);
+    return bytes;
+  }
+  // The party lives entirely inside section id1 (offsets 56..656 for 6×100-byte entries), well
+  // under one 4080-byte section, so — unlike PC boxes — no cross-section composition plan is
+  // needed: entries are read and written directly. The 100-byte layout mirrors the box format
+  // (PID, OT id, nickname, language, OT name, markings, species, item, exp — all at +4 vs. box
+  // since party keeps 4 reserved bytes box doesn't) plus real battle fields vanilla always had:
+  // plain (unpacked) moves+PP, EVs, met/origin info, ivField, ribbons, status, level, mail id,
+  // and current/max HP plus the other five stats — all confirmed against a real save by matching
+  // every field (species, item, exp, moves, level, PID, IVs, computed stats) to known values.
+  const SAV_PARTY_BASE=56,SAV_PARTY_MON_SIZE=100;
+  function calcGen3HP(base,iv,ev,level){return Math.floor((2*base+iv+Math.floor(ev/4))*level/100)+level+10}
+  function calcGen3Stat(base,iv,ev,level,mult){return Math.floor((Math.floor((2*base+iv+Math.floor(ev/4))*level/100)+5)*mult)}
+  function decodeSavPartySlot(sections,slotIndex){
+    const sec=sections.byId[1],base=SAV_PARTY_BASE+slotIndex*SAV_PARTY_MON_SIZE,d=sec.data;
+    const readU16=off=>d[base+off]|(d[base+off+1]<<8),readU32=off=>(d[base+off]|(d[base+off+1]<<8)|(d[base+off+2]<<16)|(d[base+off+3]<<24))>>>0;
+    const species=readU16(32);
+    if(!species)return null;
+    const pid=readU32(0),ivField=readU32(72);
+    return{species,pid,nickname:decodeGen3Text(d.subarray(base+8,base+18)),heldItem:readU16(34),moves:[readU16(44),readU16(46),readU16(48),readU16(50)],level:d[base+84],hasHiddenAbility:Boolean(ivField>>31&1),isEgg:Boolean(ivField>>30&1)};
+  }
+  function encodeSavPartyMon({species,level,shiny,nickname,otName,heldItem,moves,tid,sid,natureIndex,abilitySlot,forceHiddenAbility,baseStats}){
+    const bytes=new Uint8Array(SAV_PARTY_MON_SIZE);
+    const writeU16=(off,val)=>{bytes[off]=val&0xFF;bytes[off+1]=(val>>8)&0xFF};
+    const writeU32=(off,val)=>{bytes[off]=val&0xFF;bytes[off+1]=(val>>8)&0xFF;bytes[off+2]=(val>>16)&0xFF;bytes[off+3]=(val>>>24)&0xFF};
+    const growthCode=resolveGen3Species(species)?.growthCode;
+    if(growthCode===undefined)throw new Error('This Pokémon is not recognized by the save file format yet.');
+    const expTable=(window.RR_SAVE_SPECIES?.exp||[])[growthCode]||[];
+    const pid=findSavPid({tid,sid,natureIndex,abilitySlot,forceHiddenAbility,shiny});
+    writeU32(0,pid>>>0);
+    writeU32(4,(((sid<<16)>>>0)|tid)>>>0);
+    bytes.set(encodeGen3Text(nickname,10),8);
+    bytes[18]=2;bytes[19]=2;
+    bytes.set(encodeGen3Text(otName,7),20);
+    bytes[27]=0;
+    writeU16(32,species);
+    writeU16(34,heldItem||0);
+    writeU32(36,expTable[level]??0);
+    bytes[40]=0;bytes[41]=70;
+    moves.forEach((id,i)=>writeU16(44+i*2,id||0));
+    moves.forEach((id,i)=>{bytes[52+i]=id?(moveById.get(Number(id))?.pp||0):0});
+    bytes[68]=0;bytes[69]=0;writeU16(70,0);
+    let ivField=0x3FFFFFFF>>>0;
+    if(forceHiddenAbility)ivField|=(1<<31);
+    writeU32(72,ivField>>>0);
+    writeU32(76,0);
+    writeU32(80,0);
+    bytes[84]=level;
+    bytes[85]=0xFF;
+    const natureEntry=natures[natureIndex]||[null,-1,-1];
+    const hp=calcGen3HP(baseStats[0],31,0,level);
+    writeU16(86,hp);writeU16(88,hp);
+    const statOffsets={1:90,2:92,3:94,4:96,5:98};
+    for(let i=1;i<=5;i++){
+      const mult=natureEntry[1]===i?1.1:natureEntry[2]===i?0.9:1.0;
+      writeU16(statOffsets[i],calcGen3Stat(baseStats[i],31,0,level,mult));
+    }
+    return bytes;
+  }
+  function addPokemonToParty(pm,options){
+    const sec=pm.sections.byId[1],count=sec.data[52];
+    if(count>=6)throw new Error('The party is already full.');
+    const bytes=encodeSavPartyMon({...options,tid:pm.tid,sid:pm.sid,otName:pm.trainerName});
+    sec.data.set(bytes,SAV_PARTY_BASE+count*SAV_PARTY_MON_SIZE);
+    sec.data[52]=count+1;
+    recomputeSavChecksum(sec);
+    const dexFlagSet=setSavPokedexFlags(pm.sections,options.dexId);
+    pm.party=readSavReaderParty(pm.sections);
+    return{slotNumber:count+1,dexFlagSet};
+  }
+  function setSavPartyNickname(pm,slotIndex,nickname){const sec=pm.sections.byId[1],base=SAV_PARTY_BASE+slotIndex*SAV_PARTY_MON_SIZE;sec.data.set(encodeGen3Text(nickname,10),base+8);recomputeSavChecksum(sec);pm.party=readSavReaderParty(pm.sections)}
+  function setSavPartyHeldItem(pm,slotIndex,itemId){const sec=pm.sections.byId[1],base=SAV_PARTY_BASE+slotIndex*SAV_PARTY_MON_SIZE;sec.data[base+34]=itemId&0xFF;sec.data[base+35]=(itemId>>8)&0xFF;recomputeSavChecksum(sec);pm.party=readSavReaderParty(pm.sections)}
+  function setSavPartyHiddenAbility(pm,slotIndex,hidden){const sec=pm.sections.byId[1],base=SAV_PARTY_BASE+slotIndex*SAV_PARTY_MON_SIZE,off=base+72;let iv=(sec.data[off]|(sec.data[off+1]<<8)|(sec.data[off+2]<<16)|(sec.data[off+3]<<24))>>>0;if(hidden)iv|=(1<<31);else iv&=~(1<<31)>>>0;sec.data[off]=iv&0xFF;sec.data[off+1]=(iv>>8)&0xFF;sec.data[off+2]=(iv>>16)&0xFF;sec.data[off+3]=(iv>>>24)&0xFF;recomputeSavChecksum(sec);pm.party=readSavReaderParty(pm.sections)}
+  function setSavPartyMove(pm,slotIndex,moveSlot,moveId){const sec=pm.sections.byId[1],base=SAV_PARTY_BASE+slotIndex*SAV_PARTY_MON_SIZE,off=base+44+moveSlot*2;sec.data[off]=moveId&0xFF;sec.data[off+1]=(moveId>>8)&0xFF;sec.data[base+52+moveSlot]=moveId?(moveById.get(Number(moveId))?.pp||0):0;recomputeSavChecksum(sec);pm.party=readSavReaderParty(pm.sections)}
+  function addPokemonToLoadedSave(pm,options){
+    const target=findEmptySavSlot(pm.plans);
+    if(!target)throw new Error('Every PC box in this save file is full — free up a slot first.');
+    const bytes=encodeSavBoxMon({...options,tid:pm.tid,sid:pm.sid,otName:pm.trainerName});
+    const touched=writeSavSlotBytes(target.plan,target.slotIndex,bytes);
+    touched.forEach(recomputeSavChecksum);
+    const dexFlagSet=setSavPokedexFlags(pm.sections,options.dexId);
+    return{boxNumber:target.boxIndex+1,slotNumber:target.slotIndex+1,dexFlagSet};
+  }
+  const dexGroupBySpecies=new Map(groups.map(g=>[Number(g.dexId),g]));
+  function readSavSlotBytes(plan,slotIndex){const slotStart=slotIndex*SAV_BOX_MON_SIZE,out=new Uint8Array(SAV_BOX_MON_SIZE);for(const chunk of plan){const cs=chunk.destStart,ce=cs+(chunk.srcEnd-chunk.srcStart);for(let logByte=Math.max(cs,slotStart);logByte<Math.min(ce,slotStart+SAV_BOX_MON_SIZE);logByte++)out[logByte-slotStart]=chunk.sec.data[chunk.srcStart+(logByte-cs)]}return out}
+  function decodeSavSlotBytes(bytes){const readU16=off=>bytes[off]|(bytes[off+1]<<8),readU32=off=>(bytes[off]|(bytes[off+1]<<8)|(bytes[off+2]<<16)|(bytes[off+3]<<24))>>>0;const species=readU16(28);if(!species)return null;const pid=readU32(0),resolved=resolveGen3Species(species),p=resolved&&dexGroupBySpecies.get(resolved.dexId)?.forms?.[0];return{species,resolved,p,pid,nickname:decodeGen3Text(bytes.subarray(8,18)),heldItem:readU16(30),level:bytes[52]}}
+  function isSavPidShiny(pid,tid,sid){return((tid^sid^(pid>>>16)^(pid&0xFFFF))&0xFFFF)<8}
+  function swapSavSlots(planA,slotA,planB,slotB){const bytesA=readSavSlotBytes(planA,slotA),bytesB=readSavSlotBytes(planB,slotB),touched=new Set();writeSavSlotBytes(planA,slotA,bytesB).forEach(s=>touched.add(s));writeSavSlotBytes(planB,slotB,bytesA).forEach(s=>touched.add(s));touched.forEach(recomputeSavChecksum)}
+  function deleteSavSlot(plan,slotIndex){writeSavSlotBytes(plan,slotIndex,new Uint8Array(SAV_BOX_MON_SIZE)).forEach(recomputeSavChecksum)}
+  async function loadSavManager(){
+    let file;
+    try{file=await pickSavFileForAdd()}catch(error){if(error?.name!=='AbortError')alert(error.message);return}
+    if(!file)return;
+    state.savReaderBusy=true;render();
+    try{
+      const buffer=await file.arrayBuffer();
+      const sections=parseGen3SaveSections(buffer);
+      const plans=buildSavBoxPlans(sections);
+      const readU16=(bytes,off)=>bytes[off]|(bytes[off+1]<<8);
+      const tid=readU16(sections.byId[0].data,10),sid=readU16(sections.byId[0].data,12);
+      const trainerName=decodeGen3Text(sections.byId[0].data.subarray(0,7));
+      const party=readSavReaderParty(sections);
+      const firstAvailable=plans.findIndex(plan=>plan.length>0);
+      state.pcManager={buffer,sections,plans,tid,sid,trainerName,party,fileName:file.name,activeBox:firstAvailable<0?0:firstAvailable,selected:null,addedLog:[]};
+    }catch(error){alert(error.message)}finally{state.savReaderBusy=false;render()}
+  }
+  function pcBoxFillCount(plan){let n=0;for(let s=0;s<30;s++)if(decodeSavSlotBytes(readSavSlotBytes(plan,s)))n++;return n}
+  function renderPcManager(){
+    const pm=state.pcManager;
+    const availableBoxes=pm.plans.map((plan,i)=>i).filter(i=>pm.plans[i].length>0);
+    const plan=pm.plans[pm.activeBox]||[];
+    const activeFill=pcBoxFillCount(plan);
+    const selectedInfo=pm.selected?decodeSavSlotBytes(readSavSlotBytes(pm.plans[pm.selected.box],pm.selected.slot)):null;
+    const slots=Array.from({length:30},(_,s)=>{
+      const info=decodeSavSlotBytes(readSavSlotBytes(plan,s));
+      const selected=pm.selected&&pm.selected.box===pm.activeBox&&pm.selected.slot===s;
+      if(!info)return`<button class="pc-slot pc-slot-empty ${selected?'selected':''}" data-pc-slot="${s}"><img src="assets/items/poke-ball.png" alt=""><small>${s+1}</small></button>`;
+      const shiny=isSavPidShiny(info.pid,pm.tid,pm.sid),name=info.p?displayPokemonName(info.p):`#${info.species}`,sprite=info.p?(shiny&&info.p.shinySprite?info.p.shinySprite:info.p.sprite):'assets/items/poke-ball.png',nicknamed=info.nickname&&info.nickname.toUpperCase()!==name.toUpperCase(),accent=info.p?.typeColours?.[0]||'var(--red)';
+      return`<button class="pc-slot ${selected?'selected':''} ${shiny?'shiny':''}" style="--accent:${accent}" data-pc-slot="${s}" title="${esc(nicknamed?`${info.nickname} the ${name}`:name)} · Lv. ${info.level}"><img src="${sprite}" alt=""><b>Lv.${info.level}</b>${shiny?'<i>✦</i>':''}</button>`;
+    }).join('');
+    return`<article class="save-panel pc-manager"><div class="pc-manager-head"><div><span class="eyebrow">PC BOXES</span><h2>Organize and delete Pokémon</h2><p>Click one slot, then click another to swap or move Pokémon between them — changes apply immediately in memory, and nothing is written to disk until you download or save below.</p></div><button data-pc="close" class="text-action">Unload file</button></div>${pm.selected?`<div class="pc-selection-bar"><p class="save-file-status connected">${selectedInfo?`Moving ${esc(selectedInfo.p?displayPokemonName(selectedInfo.p):`#${selectedInfo.species}`)}`:'Moving this empty slot'} from Box ${pm.selected.box+1}, slot ${pm.selected.slot+1} — click a destination slot, or click it again to cancel.</p>${selectedInfo?`<button data-pc="delete" class="text-action pc-delete-button">Delete this Pokémon</button>`:''}</div>`:''}<div class="pc-box-tabs">${availableBoxes.map(i=>`<button class="${i===pm.activeBox?'active':''}" data-pc-box="${i}">Box ${i+1}</button>`).join('')}</div><div class="pc-box-meta"><span>Box ${pm.activeBox+1}</span><b>${activeFill} / 30</b></div><div class="pc-slot-grid">${slots}</div><div class="save-actions"><button data-pc="download" class="primary">Download updated save file</button>${fsAccessSupported&&state.savFileHandle?`<button data-pc="write" class="secondary">Save directly to linked file</button>`:''}</div></article>`;
+  }
+  function bindPcManager(root){
+    const pm=state.pcManager;
+    if(!pm)return;
+    root.querySelector('[data-pc="close"]')?.addEventListener('click',()=>{state.pcManager=null;render()});
+    root.querySelectorAll('[data-pc-box]').forEach(btn=>btn.addEventListener('click',()=>{pm.activeBox=Number(btn.dataset.pcBox);render()}));
+    root.querySelectorAll('[data-pc-slot]').forEach(btn=>btn.addEventListener('click',()=>{
+      const slot=Number(btn.dataset.pcSlot);
+      if(!pm.selected){pm.selected={box:pm.activeBox,slot};render();return}
+      if(pm.selected.box===pm.activeBox&&pm.selected.slot===slot){pm.selected=null;render();return}
+      swapSavSlots(pm.plans[pm.selected.box],pm.selected.slot,pm.plans[pm.activeBox],slot);
+      pm.selected=null;render();
+    }));
+    root.querySelector('[data-pc="delete"]')?.addEventListener('click',()=>{
+      if(!pm.selected)return;
+      const info=decodeSavSlotBytes(readSavSlotBytes(pm.plans[pm.selected.box],pm.selected.slot));
+      const name=info?.p?displayPokemonName(info.p):`#${info?.species}`;
+      if(!confirm(`Permanently delete ${name} from Box ${pm.selected.box+1}, slot ${pm.selected.slot+1}? This can't be undone unless you close without downloading.`))return;
+      deleteSavSlot(pm.plans[pm.selected.box],pm.selected.slot);
+      pm.selected=null;render();toast(`${name} deleted`);
+    });
+    root.querySelectorAll('[data-pc="download"]').forEach(btn=>btn.addEventListener('click',()=>{const blob=new Blob([pm.buffer],{type:'application/octet-stream'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=pm.fileName||'radical-red.sav';a.click();URL.revokeObjectURL(url);toast('Downloaded the updated save file')}));
+    root.querySelectorAll('[data-pc="write"]').forEach(btn=>btn.addEventListener('click',async()=>{
+      if(!state.savFileHandle||!confirm('Save this directly to the linked file on this device? Make sure you have a backup of a downloaded copy first.'))return;
+      try{
+        if(await state.savFileHandle.queryPermission({mode:'readwrite'})!=='granted'&&await state.savFileHandle.requestPermission({mode:'readwrite'})!=='granted'){toast('Permission to write the save file was denied');return}
+        const writable=await state.savFileHandle.createWritable();await writable.write(pm.buffer);await writable.close();
+        toast('Save file updated on this device');
+      }catch(error){alert(error.message)}
+    }));
+  }
+  // Read-only viewer: decodes trainer info, party (with the real level byte, not the
+  // exp-table approximation used elsewhere) and every PC box slot, purely for inspecting
+  // a .sav/.srm file — nothing here is ever written back.
+  function readSavReaderParty(sections){
+    const readU16=(b,o)=>b[o]|(b[o+1]<<8),readU32=(b,o)=>(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;
+    const sb1=new Uint8Array(SAV_DATA_LEN*4);
+    [1,2,3,4].forEach((id,i)=>{if(sections.byId[id])sb1.set(sections.byId[id].data,SAV_DATA_LEN*i)});
+    const count=Math.min(sb1[52],6),party=[];
+    for(let i=0;i<count;i++){
+      const bytes=sb1.subarray(56+i*100,56+i*100+100),species=readU16(bytes,32);
+      if(!species)continue;
+      const pid=readU32(bytes,0),ivField=readU32(bytes,72);
+      party.push({species,pid,nickname:decodeGen3Text(bytes.subarray(8,18)),heldItem:readU16(bytes,34),moves:[readU16(bytes,44),readU16(bytes,46),readU16(bytes,48),readU16(bytes,50)],level:bytes[84],isEgg:Boolean(ivField>>30&1),hasHiddenAbility:Boolean(ivField>>31&1)});
+    }
+    return party;
+  }
+  function partySlotCard(pm,index){
+    const info=decodeSavPartySlot(pm.sections,index);
+    const resolved=info&&resolveGen3Species(info.species),p=resolved&&dexGroupBySpecies.get(resolved.dexId)?.forms?.[0];
+    if(!p)return`<article class="team-card sav-party-card"><header><span>PARTY SLOT ${index+1}</span></header><div class="team-identity"><img src="assets/items/poke-ball.png" alt=""><div><h2>Unrecognized #${info.species}</h2></div></div></article>`;
+    const shiny=isSavPidShiny(info.pid,pm.tid,pm.sid),name=displayPokemonName(p),nicknamed=info.nickname&&info.nickname.toUpperCase()!==name.toUpperCase();
+    const abilities=p.abilities||[],naturalAbility=abilities[info.pid&1]?.name||abilities[0]?.name||'',currentAbility=info.hasHiddenAbility&&abilities[2]?abilities[2].name:naturalAbility;
+    return`<article class="team-card sav-party-card ${shiny?'shiny':''}" style="--accent:${p.typeColours?.[0]||'var(--red)'}"><header><span>PARTY SLOT ${index+1}</span></header><div class="team-identity"><img src="${shiny&&p.shinySprite?p.shinySprite:p.sprite}" alt=""><div><h2>${esc(nicknamed?info.nickname:name)}${shiny?' ✦':''}</h2>${nicknamed?`<small>${esc(name)}</small>`:''}${types(p)}<b>Lv. ${info.level}${info.isEgg?' · Egg':''}</b></div></div><div class="team-fields"><label><span>Nickname</span><input data-party-nickname="${index}" maxlength="9" value="${esc(info.nickname)}" placeholder="${esc(p.name.slice(0,9))}"></label><label><span>Ability</span><span class="sav-party-ability">${esc(currentAbility||'—')}</span></label></div>${abilities[2]?`<label class="build-shiny-toggle"><input type="checkbox" data-party-hidden-ability="${index}" ${info.hasHiddenAbility?'checked':''}><span>Hidden Ability: ${esc(abilities[2].name)}</span></label>`:''}${heldItemControl(info.heldItem?String(info.heldItem):'',`data-party-held-item="${index}"`,`data-party-held-clear="${index}"`)}<div class="team-moves">${info.moves.map((selected,m)=>`<label><span>Move ${m+1}</span>${learnableMoveSelect(p,selected,`data-party-move="${index}:${m}"`)}</label>`).join('')}</div></article>`;
+  }
+  function partyAddCard(index){
+    const form=state.partyAdd,p=pokemonById.get(Number(form.pokemonId)),abilities=p?.abilities||[];
+    if(p&&!abilities.some(a=>a.name===form.ability))form.ability=abilities[0]?.name||'';
+    const unsupported=p&&!dexIdToInternalSpecies.has(Number(p.dexId));
+    return`<article class="team-card sav-party-add-card"><header><span>PARTY SLOT ${index+1}</span><b>Empty</b></header><label><span>Pokémon</span><input type="search" list="teamPokemonChoices" data-party-add-species value="${p?esc(displayPokemonName(p)):''}" placeholder="Search Pokémon by name…" autocomplete="off"></label>${unsupported?'<p class="save-file-status">Not yet supported by the save format.</p>':''}${p&&!unsupported?`<div class="team-fields"><label><span>Nickname</span><input data-party-add-nickname maxlength="9" value="${esc(form.nickname)}" placeholder="${esc(p.name.slice(0,9))}"></label><label><span>Level</span><input type="number" min="1" max="100" data-party-add-level value="${form.level}"></label><label><span>Nature</span><select data-party-add-nature>${natureSelectOptions(form.nature)}</select></label><label><span>Ability</span><select data-party-add-ability>${abilities.map(a=>`<option value="${esc(a.name)}" ${form.ability===a.name?'selected':''}>${esc(a.name)}</option>`).join('')}</select></label></div><label class="build-shiny-toggle"><input type="checkbox" data-party-add-shiny ${form.shiny?'checked':''}><span>Shiny</span></label>${heldItemControl(form.heldItem,'data-party-add-held-item','data-party-add-held-clear')}<div class="team-moves">${form.moves.map((selected,m)=>`<label><span>Move ${m+1}</span>${learnableMoveSelect(p,selected,`data-party-add-move="${m}"`)}</label>`).join('')}</div><div class="save-actions"><button data-party-add-commit class="primary">Add to party</button></div>`:''}</article>`;
+  }
+  function partyLockedCard(index){return`<article class="team-card empty-team"><header><span>PARTY SLOT ${index+1}</span><b>Locked</b></header><div class="team-empty-ball"><img src="assets/items/poke-ball.png" alt=""></div><p class="save-file-status">Fill earlier slots first — party slots stay in order.</p></article>`}
+  function renderSavPartySection(pm){
+    const count=pm.sections.byId[1].data[52];
+    const cards=Array.from({length:6},(_,i)=>i<count?partySlotCard(pm,i):i===count?partyAddCard(i):partyLockedCard(i));
+    return`<section class="sav-reader-party"><header class="page-head"><div><span class="eyebrow">CURRENT PARTY</span><h2>${count} / 6 Pokémon</h2><p>Edit nicknames, held items, hidden ability and moves directly — only moves this Pokémon can actually learn are offered. Add a new Pokémon into the next open slot below.</p></div></header><div class="team-grid">${cards.join('')}</div></section>`;
+  }
+  function commitPartyAdd(){
+    const pm=state.pcManager;
+    if(!pm)return;
+    const form=state.partyAdd,p=pokemonById.get(Number(form.pokemonId));
+    if(!p)return;
+    const internalSpecies=dexIdToInternalSpecies.get(Number(p.dexId));
+    if(internalSpecies===undefined){toast('This Pokémon isn’t supported by the save file format yet.');return}
+    const abilityIndex=(p.abilities||[]).findIndex(a=>a.name===form.ability),forceHiddenAbility=abilityIndex>=2,abilitySlot=forceHiddenAbility?0:(abilityIndex===1?1:0);
+    const natureIndex=natures.findIndex(n=>n[0]===form.nature);
+    const level=Math.min(100,Math.max(1,Number(form.level)||1));
+    const heldItem=form.heldItem?Number(form.heldItem):0;
+    const moves=form.moves.map(id=>id?Number(id):0);
+    const nickname=(form.nickname.trim()||p.name).slice(0,9);
+    try{
+      const result=addPokemonToParty(pm,{species:internalSpecies,level,shiny:form.shiny,nickname,heldItem,moves,natureIndex,abilitySlot,forceHiddenAbility,dexId:Number(p.dexId),baseStats:p.stats});
+      toast(`${nickname} added to party slot ${result.slotNumber}`);
+      state.partyAdd=blankSavAddForm();
+    }catch(error){alert(error.message)}
+    render();
+  }
+  function bindSavParty(root){
+    const pm=state.pcManager;
+    if(!pm)return;
+    root.querySelectorAll('[data-party-nickname]').forEach(input=>input.addEventListener('change',()=>{setSavPartyNickname(pm,Number(input.dataset.partyNickname),input.value.trim().slice(0,9));render()}));
+    root.querySelectorAll('[data-party-hidden-ability]').forEach(cb=>cb.addEventListener('change',()=>{setSavPartyHiddenAbility(pm,Number(cb.dataset.partyHiddenAbility),cb.checked);render()}));
+    root.querySelectorAll('[data-party-held-item]').forEach(sel=>sel.addEventListener('change',()=>{setSavPartyHeldItem(pm,Number(sel.dataset.partyHeldItem),Number(sel.value)||0);render()}));
+    root.querySelectorAll('[data-party-held-clear]').forEach(btn=>btn.addEventListener('click',()=>{setSavPartyHeldItem(pm,Number(btn.dataset.partyHeldClear),0);render()}));
+    root.querySelectorAll('[data-party-move]').forEach(sel=>sel.addEventListener('change',()=>{const[i,m]=sel.dataset.partyMove.split(':').map(Number);setSavPartyMove(pm,i,m,Number(sel.value)||0);render()}));
+    const speciesInput=root.querySelector('[data-party-add-species]');
+    if(speciesInput)speciesInput.onchange=()=>{const p=resolveTeamPokemon(speciesInput.value);if(!speciesInput.value.trim()){state.partyAdd=blankSavAddForm();render();return}if(!p){toast('Choose a Pokémon from the search suggestions');render();return}state.partyAdd={...blankSavAddForm(),pokemonId:p.id,ability:p.abilities?.[0]?.name||''};render()};
+    root.querySelector('[data-party-add-nickname]')?.addEventListener('change',e=>{state.partyAdd.nickname=e.target.value.slice(0,9)});
+    root.querySelector('[data-party-add-level]')?.addEventListener('change',e=>{state.partyAdd.level=Math.min(100,Math.max(1,Number(e.target.value)||1));render()});
+    root.querySelector('[data-party-add-shiny]')?.addEventListener('change',e=>{state.partyAdd.shiny=e.target.checked});
+    root.querySelector('[data-party-add-nature]')?.addEventListener('change',e=>{state.partyAdd.nature=e.target.value});
+    root.querySelector('[data-party-add-ability]')?.addEventListener('change',e=>{state.partyAdd.ability=e.target.value});
+    root.querySelector('[data-party-add-held-item]')?.addEventListener('change',e=>{state.partyAdd.heldItem=e.target.value;render()});
+    root.querySelector('[data-party-add-held-clear]')?.addEventListener('click',()=>{state.partyAdd.heldItem='';render()});
+    root.querySelectorAll('[data-party-add-move]').forEach(sel=>sel.addEventListener('change',()=>{state.partyAdd.moves[Number(sel.dataset.partyAddMove)]=sel.value}));
+    root.querySelector('[data-party-add-commit]')?.addEventListener('click',commitPartyAdd);
+  }
+  function renderSavReader(){
+    const pm=state.pcManager;
+    return`<header class="page-head"><div><span class="eyebrow">GAME SAVE FILE</span><h1>Save Reader</h1><p>Load a Radical Red .sav or .srm file to inspect the trainer and party, then add, delete or rearrange Pokémon in the party and PC boxes. Nothing touches disk until you download or save below.</p></div></header><section class="save-panel sav-reader-load"><div class="save-actions"><button id="savReaderLoad" class="primary" ${state.savReaderBusy?'disabled':''}>${state.savReaderBusy?'Loading…':pm?'Load a different file':'Load .sav / .srm file'}</button></div>${pm?`<p class="save-file-status connected">Editing <strong>${esc(pm.fileName)}</strong> — Trainer ${esc(pm.trainerName||'(unknown)')} · ID ${pm.tid}</p>`:''}</section>${pm?`${renderSavPartySection(pm)}<section class="save-panel"><span class="eyebrow">PC BOXES</span><h2>Add a Pokémon</h2><p>Creates a brand-new Pokémon in the first empty PC box slot with the level, shininess, ability, held item and moves you choose.</p><div class="save-actions"><button data-sav="add-open" class="secondary">+ Add a Pokémon</button></div></section>${savAddPanel()}${renderPcManager()}`:''}`;
+  }
+  function bindSavReader(root){
+    const loadButton=root.querySelector('#savReaderLoad');
+    if(loadButton)loadButton.onclick=()=>loadSavManager();
+    root.querySelectorAll('[data-sav]').forEach(button=>{
+      const action=button.dataset.sav;
+      if(action==='add-open')button.onclick=()=>{state.savAddOpen=true;render()};
+      else if(action==='add-cancel')button.onclick=()=>{state.savAddOpen=false;state.savAdd=blankSavAddForm();render()};
+      else if(action==='add-commit')button.onclick=commitSavAdd;
+    });
+    bindSavAdd(root);
+    bindSavParty(root);
+    bindPcManager(root);
+  }
+  function applyGen3Save(parsed){
+    backupLocal('Before importing game save file');
+    const dexGroupBySpecies=new Map(groups.map(g=>[Number(g.dexId),g]));
+    const caughtIds=new Set();
+    const addCaught=mon=>{const resolved=resolveGen3Species(mon.species);if(resolved&&dexGroupBySpecies.has(resolved.dexId))caughtIds.add(String(resolved.dexId))};
+    parsed.party.forEach(addCaught);
+    parsed.boxes.forEach(box=>box.forEach(addCaught));
+    state.caught=caughtIds;
+    state.team=Array.from({length:6},(_,i)=>{const mon=parsed.party[i],resolved=mon&&resolveGen3Species(mon.species),p=resolved&&dexGroupBySpecies.get(resolved.dexId)?.forms?.[0];if(!p)return blankTeamSlot();const heldItem=itemData.find(item=>Number(item.id)===mon.heldItem);const nickname=mon.nickname&&mon.nickname.toUpperCase()!==p.name.toUpperCase()?mon.nickname.slice(0,24):'';const abilityIndex=mon.hasHiddenAbility&&p.abilities?.length>2?2:mon.personalityValue&1;return{...blankTeamSlot(),pokemonId:p.id,nickname,ability:p.abilities?.[abilityIndex]?.name||p.abilities?.[0]?.name||'',heldItem:heldItem?String(heldItem.id):'',moves:mon.moves.map(id=>moveById.has(id)?String(id):'')}});
+    localStorage.setItem('radical-red-caught',JSON.stringify([...state.caught]));
+    localStorage.setItem(syncKeys.team,JSON.stringify(state.team));
+    state.saveMeta.revision++;state.saveMeta.modifiedAt=new Date().toISOString();
+    localStorage.setItem(syncKeys.meta,JSON.stringify(state.saveMeta));
+    state.syncSnapshot=null;state.syncStatus=state.syncCode&&syncEndpoint?'local-newer':'unchecked';
+    updateProgress()
+  }
+  async function importGen3SaveFromFile(file){
+    const parsed=parseGen3Save(await file.arrayBuffer());
+    const dexGroupBySpecies=new Map(groups.map(g=>[Number(g.dexId),g]));
+    const describeMon=mon=>{const resolved=resolveGen3Species(mon.species),p=resolved&&dexGroupBySpecies.get(resolved.dexId)?.forms?.[0];if(!p)return{dexId:null,line:`Unrecognized species #${mon.species}`};const level=gen3Level(mon.experience,resolved.growthCode);return{dexId:resolved.dexId,line:`${mon.nickname&&mon.nickname.toUpperCase()!==p.name.toUpperCase()?`${mon.nickname} the `:''}${p.name} (Lv. ${level})`}};
+    const caughtPreview=new Set();
+    const partyLines=parsed.party.map(mon=>{const d=describeMon(mon);if(d.dexId)caughtPreview.add(d.dexId);return`- ${d.line}`});
+    parsed.boxes.forEach(box=>box.forEach(mon=>{const d=describeMon(mon);if(d.dexId)caughtPreview.add(d.dexId)}));
+    const summary=`Trainer: ${parsed.trainerName||'(unknown)'}  ·  ID ${parsed.tid}\nPokémon recognized (party + PC boxes): ${caughtPreview.size}\n\nParty:\n${partyLines.join('\n')||'(empty)'}\n\nThis will REPLACE this device's caught Pokédex and team with the data above. Continue?`;
+    if(!confirm(summary))return false;
+    applyGen3Save(parsed);
+    render();
+    toast('Game save imported');
+    return true;
+  }
+  function savAddPanel(){
+    if(!state.savAddOpen)return'';
+    const form=state.savAdd,p=pokemonById.get(Number(form.pokemonId)),abilities=p?.abilities||[];
+    if(p&&!abilities.some(a=>a.name===form.ability))form.ability=abilities[0]?.name||'';
+    const unsupported=p&&!dexIdToInternalSpecies.has(Number(p.dexId));
+    const accent=p?.typeColours?.[0]||'var(--red)';
+    const pm=state.pcManager;
+    return`<article class="save-panel sav-add-panel" style="--accent:${accent}"><span class="eyebrow">GAME SAVE FILE</span><h2>Add a Pokémon to this save file</h2><p>Creates a brand-new Pokémon in the first empty PC box slot. After adding, the form clears so you can keep adding more — download once you're done with all of them.</p>${pm.addedLog.length?`<ul class="sav-added-log">${pm.addedLog.map(line=>`<li>${esc(line)}</li>`).join('')}</ul>`:''}<label><span>Pokémon</span><input type="search" list="teamPokemonChoices" data-sav-species-search value="${p?esc(displayPokemonName(p)):''}" placeholder="Search Pokémon by name…" autocomplete="off"></label>${teamPokemonDatalist()}${unsupported?'<p class="save-file-status">This Pokémon is not yet recognized by the save file’s species table.</p>':''}${p&&!unsupported?`<div class="sav-add-identity"><img src="${form.shiny&&p.shinySprite?p.shinySprite:p.sprite}" alt=""><div><h3>${esc(form.nickname||displayPokemonName(p))}</h3>${form.nickname?`<small>${esc(displayPokemonName(p))}</small>`:''}${types(p)}</div><label class="build-shiny-toggle"><input type="checkbox" data-sav-shiny ${form.shiny?'checked':''}><span>Shiny</span></label></div><div class="team-fields"><label><span>Nickname</span><input data-sav-nickname maxlength="9" value="${esc(form.nickname)}" placeholder="${esc(p.name.slice(0,9))}"></label><label><span>Level</span><input type="number" min="1" max="100" data-sav-level value="${form.level}"></label><label><span>Nature</span><select data-sav-nature>${natureSelectOptions(form.nature)}</select></label><label><span>Ability</span><select data-sav-ability>${abilities.map(a=>`<option value="${esc(a.name)}" ${form.ability===a.name?'selected':''}>${esc(a.name)}</option>`).join('')}</select></label></div>${heldItemControl(form.heldItem,'data-sav-held-item','data-sav-held-clear')}<div class="team-moves">${form.moves.map((selected,m)=>`<label><span>Move ${m+1}</span>${learnableMoveSelect(p,selected,`data-sav-move="${m}"`)}</label>`).join('')}</div>`:''}<div class="save-actions">${p&&!unsupported?`<button data-sav="add-commit" class="primary">Add this Pokémon</button>`:''}<button data-sav="add-cancel" class="text-action">${pm.addedLog.length?'Done adding':'Cancel'}</button>${pm.addedLog.length?`<button data-pc="download" class="secondary">Download updated save file</button>${fsAccessSupported&&state.savFileHandle?`<button data-pc="write" class="secondary">Save directly to linked file</button>`:''}`:''}</div></article>`;
+  }
+  function bindSave(root){const exportButton=root.querySelector('#exportSave'),importButton=root.querySelector('#importSave'),importFile=root.querySelector('#importSaveFile'),codeInput=root.querySelector('#syncCode');if(exportButton)exportButton.onclick=()=>{const blob=new Blob([JSON.stringify(createSave(),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`radical-red-field-guide-save-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);toast('Save exported')};if(importButton)importButton.onclick=()=>importFile.click();if(importFile)importFile.onchange=async e=>{try{if(!e.target.files?.[0]||!confirm('Replace this device\'s current caught progress with the imported save?'))return;applySave(JSON.parse(await e.target.files[0].text()));render();toast('Save imported')}catch(error){alert(error.message)}};const importSavButton=root.querySelector('#importSavButton'),importSavFile=root.querySelector('#importSavFileInput');if(importSavButton)importSavButton.onclick=()=>importSavFile.click();if(importSavFile)importSavFile.onchange=async e=>{const file=e.target.files?.[0];try{if(!file)return;await importGen3SaveFromFile(file)}catch(error){alert(error.message)}finally{e.target.value=''}};root.querySelectorAll('[data-sav]').forEach(button=>button.onclick=async()=>{const action=button.dataset.sav;try{button.disabled=true;if(action==='connect'){const[handle]=await window.showOpenFilePicker({types:[{description:'Radical Red save file',accept:{'application/octet-stream':['.sav','.srm']}}],excludeAcceptAllOption:false});await idbSetSavHandle(handle);state.savFileHandle=handle;state.savFileName=handle.name;const imported=await importGen3SaveFromFile(await handle.getFile());if(!imported)render()}else if(action==='sync'){let handle=state.savFileHandle;if(!handle)return;if(await handle.queryPermission({mode:'read'})!=='granted'&&await handle.requestPermission({mode:'read'})!=='granted'){toast('Permission to read the save file was denied');return}await importGen3SaveFromFile(await handle.getFile())}else if(action==='disconnect'){await idbDeleteSavHandle();state.savFileHandle=null;state.savFileName='';render();toast('Save file disconnected')}}catch(error){if(error.name!=='AbortError')alert(error.message)}finally{button.disabled=false}});if(codeInput)codeInput.oninput=e=>{const raw=e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,12);e.target.value=raw.match(/.{1,4}/g)?.join('-')||'';state.syncCode=e.target.value;if(syncCodePattern.test(state.syncCode))localStorage.setItem(syncKeys.code,state.syncCode);state.syncStatus='unchecked'};root.querySelectorAll('[data-sync]').forEach(button=>button.onclick=async()=>{try{button.disabled=true;const action=button.dataset.sync;if(action==='create'){state.syncCode=generateSyncCode();localStorage.setItem(syncKeys.code,state.syncCode);state.syncContext={code:state.syncCode,lastSyncedRevision:null,lastSyncedFingerprint:'',lastSyncedAt:null};localStorage.setItem(syncKeys.context,JSON.stringify(state.syncContext));state.syncStatus='unchecked';render();toast('Private sync code created')}else if(action==='copy'){await navigator.clipboard.writeText(normalizeSyncCode());toast('Sync code copied')}else if(action==='check'){await checkCloud();toast('Latest cloud version checked')}else if(action==='upload')await uploadCloud();else if(action==='download')await downloadCloud();else if(action==='keep-local'){if(confirm('Replace the cloud copy with this device?'))await uploadCloud(true)}else if(action==='keep-cloud'){if(confirm('Replace this device with the cloud copy? A local backup will be kept.'))await downloadCloud(true)}else if(action==='history')await loadHistory();else if(action==='forget'){state.syncCode='';state.syncContext={code:'',lastSyncedRevision:null,lastSyncedFingerprint:'',lastSyncedAt:null};localStorage.removeItem(syncKeys.code);localStorage.removeItem(syncKeys.context);state.syncStatus='unchecked';render();toast('Sync code forgotten on this device')}}catch(error){alert(error.message);button.disabled=false}})}
+  async function pickSavFileForAdd(){
+    if(state.savFileHandle){
+      if(await state.savFileHandle.queryPermission({mode:'read'})!=='granted'&&await state.savFileHandle.requestPermission({mode:'read'})!=='granted')throw new Error('Permission to read the save file was denied');
+      return await state.savFileHandle.getFile();
+    }
+    if(fsAccessSupported){
+      const[handle]=await window.showOpenFilePicker({types:[{description:'Radical Red save file',accept:{'application/octet-stream':['.sav','.srm']}}],excludeAcceptAllOption:false});
+      return await handle.getFile();
+    }
+    return new Promise(resolve=>{const input=document.createElement('input');input.type='file';input.accept='.sav,.srm';input.onchange=()=>resolve(input.files?.[0]||null);input.click()});
+  }
+  function commitSavAdd(){
+    const pm=state.pcManager;
+    if(!pm)return;
+    const form=state.savAdd,p=pokemonById.get(Number(form.pokemonId));
+    if(!p)return;
+    const internalSpecies=dexIdToInternalSpecies.get(Number(p.dexId));
+    if(internalSpecies===undefined){toast('This Pokémon isn’t supported by the save file format yet.');return}
+    const abilityIndex=(p.abilities||[]).findIndex(a=>a.name===form.ability),forceHiddenAbility=abilityIndex>=2,abilitySlot=forceHiddenAbility?0:(abilityIndex===1?1:0);
+    const natureIndex=natures.findIndex(n=>n[0]===form.nature);
+    const level=Math.min(100,Math.max(1,Number(form.level)||1));
+    const heldItem=form.heldItem?Number(form.heldItem):0;
+    const moves=form.moves.map(id=>id?Number(id):0);
+    const nickname=(form.nickname.trim()||p.name).slice(0,9);
+    try{
+      const result=addPokemonToLoadedSave(pm,{species:internalSpecies,level,shiny:form.shiny,nickname,heldItem,moves,natureIndex,abilitySlot,forceHiddenAbility,dexId:Number(p.dexId)});
+      pm.addedLog.push(`${nickname} (Lv. ${level}${form.shiny?', Shiny':''}) → Box ${result.boxNumber}, slot ${result.slotNumber}${result.dexFlagSet?'':' — Pokédex flag not set (dex number too high for this save format)'}`);
+      toast(`${nickname} added to PC Box ${result.boxNumber}, slot ${result.slotNumber}`);
+      state.savAdd=blankSavAddForm();
+    }catch(error){alert(error.message)}
+    render();
+  }
+  function bindSavAdd(root){
+    const speciesInput=root.querySelector('[data-sav-species-search]');
+    if(speciesInput)speciesInput.onchange=()=>{const p=resolveTeamPokemon(speciesInput.value);if(!speciesInput.value.trim()){state.savAdd=blankSavAddForm();render();return}if(!p){toast('Choose a Pokémon from the search suggestions');render();return}state.savAdd={...blankSavAddForm(),pokemonId:p.id,ability:p.abilities?.[0]?.name||''};render()};
+    root.querySelector('[data-sav-nickname]')?.addEventListener('change',e=>{state.savAdd.nickname=e.target.value.slice(0,9)});
+    root.querySelector('[data-sav-level]')?.addEventListener('change',e=>{state.savAdd.level=Math.min(100,Math.max(1,Number(e.target.value)||1));render()});
+    root.querySelector('[data-sav-shiny]')?.addEventListener('change',e=>{state.savAdd.shiny=e.target.checked});
+    root.querySelector('[data-sav-nature]')?.addEventListener('change',e=>{state.savAdd.nature=e.target.value});
+    root.querySelector('[data-sav-ability]')?.addEventListener('change',e=>{state.savAdd.ability=e.target.value});
+    root.querySelector('[data-sav-held-item]')?.addEventListener('change',e=>{state.savAdd.heldItem=e.target.value;render()});
+    root.querySelector('[data-sav-held-clear]')?.addEventListener('click',()=>{state.savAdd.heldItem='';render()});
+    root.querySelectorAll('[data-sav-move]').forEach(select=>select.addEventListener('change',()=>{state.savAdd.moves[Number(select.dataset.savMove)]=select.value}));
+  }
   function focusEnd(sel){requestAnimationFrame(()=>{const x=document.querySelector(sel);x?.focus();x?.setSelectionRange(x.value.length,x.value.length)})}
-  function toast(msg){const x=document.querySelector('#toast');x.textContent=msg;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),1800)}
+  // Vietnamese UI translation. Scope is interface chrome only (nav, headers, buttons, labels,
+  // toasts, placeholders) — Pokémon, move, item and location names stay in English so they keep
+  // matching the community wiki/dex/Trainer Docs. Static header/sidebar text is retranslated
+  // directly (STATIC_UI); dynamic #mainContent is re-rendered in English on every render() and
+  // then, when Vietnamese is active, walked once to swap any text node that exactly matches a
+  // UI_DICTIONARY key — anything without a dictionary entry (species/move/item names) is left
+  // untouched automatically.
+  const UI_DICTIONARY={
+    'Overview':'Tổng quan','Pokédex':'Pokédex','Moves':'Chiêu thức','Items':'Vật phẩm','Locations':'Địa điểm','Team Builder':'Xây đội hình','Future Team':'Đội hình tương lai','Favorites':'Yêu thích','Battles':'Trận đấu','Progress':'Tiến trình','Save & Sync':'Lưu & Đồng bộ',
+    'Home':'Trang chủ','Dex':'Dex','Places':'Địa điểm','Team':'Đội hình','Future':'Tương lai','Saved':'Đã lưu','Sync':'Đồng bộ',
+    'My Dex':'Dex của tôi',
+    'Dex progress':'Tiến độ Dex','Eggs':'Trứng','Legendaries':'Pokémon huyền thoại',
+    'BATTLE INTELLIGENCE':'TÌNH BÁO TRẬN ĐẤU','BATTLE LIBRARY':'THƯ VIỆN TRẬN ĐẤU','BEST OFFENCE':'TẤN CÔNG TỐT NHẤT','BUILD LIBRARY':'THƯ VIỆN BUILD','COMPLETE ACQUISITION ATLAS':'BẢN ĐỒ THU THẬP ĐẦY ĐỦ','CURRENT PARTY':'ĐỘI HÌNH HIỆN TẠI','CURRENT RUN':'LƯỢT CHƠI HIỆN TẠI','ENCRYPTED CLOUD SYNC':'ĐỒNG BỘ ĐÁM MÂY MÃ HOÁ','EVOLUTION ROUTE':'LỘ TRÌNH TIẾN HOÁ','FIELD INVENTORY':'KHO ĐỒ THỰC ĐỊA','GAME SAVE FILE':'FILE SAVE GAME','GYM CHALLENGE':'THỬ THÁCH GYM','HATCH POOL':'NHÓM TRỨNG NỞ','HATCHERY GUIDE':'HƯỚNG DẪN ẤP TRỨNG','HOW TO OBTAIN':'CÁCH NHẬN ĐƯỢC','LEGENDARY HUNT':'SĂN HUYỀN THOẠI','LONG-TERM PARTY PLAN':'KẾ HOẠCH ĐỘI HÌNH DÀI HẠN','MATCHUP LAB':'PHÒNG THÍ NGHIỆM ĐẤU PHÁP','MOVE DATABASE':'CƠ SỞ DỮ LIỆU CHIÊU THỨC','OFFENSIVE COVERAGE':'ĐỘ PHỦ TẤN CÔNG','OFFLINE BACKUP':'SAO LƯU NGOẠI TUYẾN','ONE-PAGE CATCH LIST':'DANH SÁCH BẮT 1 TRANG','PARTY PLANNER':'LẬP KẾ HOẠCH ĐỘI HÌNH','PATH TO TEAM':'LỘ TRÌNH VÀO ĐỘI','POKÉDEX PROGRESS':'TIẾN ĐỘ POKÉDEX','PORTABLE PROGRESS':'TIẾN ĐỘ DI ĐỘNG','RADICAL RED ATLAS':'BẢN ĐỒ RADICAL RED','RAID TIER':'CẤP ĐỘ RAID','REFINE THE DEX':'LỌC DEX','START HERE':'BẮT ĐẦU TỪ ĐÂY','TEAM RECOMMENDATIONS':'GỢI Ý ĐỘI HÌNH','WHOLE-TEAM OPTIMISER':'TỐI ƯU CẢ ĐỘI','YOUR JOURNEY':'HÀNH TRÌNH CỦA BẠN','YOUR TEAM':'ĐỘI CỦA BẠN','DATA SOURCES':'NGUỒN DỮ LIỆU','RECOMMENDED MOVE':'CHIÊU ĐƯỢC GỢI Ý','SAVED BUILD':'BUILD ĐÃ LƯU','SAVE FRESHNESS':'ĐỘ MỚI CỦA SAVE',
+    'Nature':'Tính cách','Ability':'Khả năng','Power':'Sức mạnh','Accuracy':'Độ chính xác','Nickname':'Biệt danh','Info':'Thông tin','No held item':'Không cầm vật phẩm','Held item':'Vật phẩm cầm','Empty':'Trống','Clear':'Xoá','Caught':'Đã bắt','Not caught':'Chưa bắt','Mark caught':'Đánh dấu đã bắt','Mark not caught':'Đánh dấu chưa bắt','Speed':'Tốc độ','Sort by':'Sắp xếp theo','Open Team Builder':'Mở Xây đội hình','Open Map':'Mở bản đồ','No saved builds yet':'Chưa có build nào được lưu','No move':'Không có chiêu','Continue catching':'Tiếp tục bắt Pokémon','Build a team':'Xây một đội hình','Battle Planner':'Lập kế hoạch trận đấu','Attack':'Tấn công','Defense':'Phòng thủ','All':'Tất cả','Add to team':'Thêm vào đội','Your team':'Đội của bạn','Your field kit':'Trang bị thực địa của bạn','Where to find it':'Tìm ở đâu','Use this move':'Dùng chiêu này','Use one short private code':'Dùng một mã riêng tư ngắn','Use in Team Builder':'Dùng trong Xây đội hình','Use in Future Team':'Dùng trong Đội hình tương lai','Use cloud save':'Dùng save trên đám mây','Use as Future Team':'Dùng làm Đội hình tương lai','Unlock':'Mở khoá','Threat taken':'Sát thương nhận','Threat matchup':'Đối đầu','Team move':'Chiêu của đội','Suggested complete teams':'Đội hình gợi ý hoàn chỉnh','Suggested Teams':'Đội hình gợi ý','Stored locally in this browser.':'Lưu cục bộ trên trình duyệt này.','Source-only':'Chỉ nguồn','Select an item to see its effect.':'Chọn một vật phẩm để xem hiệu ứng.','Save to cloud':'Lưu lên đám mây','Save to Favorites':'Lưu vào Yêu thích','Safe offensive move coverage':'Độ phủ chiêu tấn công an toàn','Private sync code':'Mã đồng bộ riêng tư','Priority':'Độ ưu tiên','Potential rank':'Xếp hạng tiềm năng','Plan a future team':'Lên kế hoạch đội hình tương lai','Reset':'Đặt lại','Remove':'Xoá bỏ','Recovery versions':'Phiên bản khôi phục','Recommended matchups by opponent':'Gợi ý đối đầu theo đối thủ','Export save':'Xuất file save','Import save':'Nhập file save','Import .sav file':'Nhập file .sav','Connect .sav file':'Kết nối file .sav','Choose a different file':'Chọn file khác','Sync now':'Đồng bộ ngay','Disconnect':'Ngắt kết nối','Link a .sav file on this device to re-sync anytime without re-uploading it.':'Kết nối một file .sav trên thiết bị này để đồng bộ lại bất cứ lúc nào mà không cần tải lên lại.',"This browser can't keep a save file linked — pick the file again each time you want to sync.":'Trình duyệt này không thể giữ liên kết file save — hãy chọn lại file mỗi khi bạn muốn đồng bộ.','Create code':'Tạo mã','Copy':'Sao chép','Check latest':'Kiểm tra mới nhất','Save to cloud':'Lưu lên đám mây','Load from cloud':'Tải từ đám mây','Forget code':'Quên mã','Edit team':'Sửa đội hình','Continue':'Tiếp tục','Cancel':'Huỷ','Confirm':'Xác nhận','Close':'Đóng','Search':'Tìm kiếm','Loading more locations…':'Đang tải thêm địa điểm…','Loading more items':'Đang tải thêm vật phẩm','Hide caught':'Ẩn đã bắt','Expand all':'Mở rộng tất cả','Collapse all':'Thu gọn tất cả','Expand shown':'Mở rộng đang hiện','Collapse shown':'Thu gọn đang hiện',
+    'Search the whole guide…':'Tìm trong toàn bộ cẩm nang…','Search Pokémon by name…':'Tìm Pokémon theo tên…','Search by name or number…':'Tìm theo tên hoặc số…','Search egg sources, locations or Pokémon…':'Tìm nguồn trứng, địa điểm hoặc Pokémon…','Search items, descriptions or locations…':'Tìm vật phẩm, mô tả hoặc địa điểm…','Search legendary Pokémon, location or method…':'Tìm Pokémon huyền thoại, địa điểm hoặc cách bắt…','Search moves or descriptions…':'Tìm chiêu thức hoặc mô tả…','Search saved builds or Pokémon…':'Tìm build đã lưu hoặc Pokémon…','Search trainers, Pokémon or moves…':'Tìm trainer, Pokémon hoặc chiêu thức…',
+  };
+  const TOAST_DICTIONARY={
+    'All four move slots are filled. Clear one before using this suggestion.':'Cả 4 ô chiêu đã đầy. Xoá bớt một ô trước khi dùng gợi ý này.','All six slots are filled. Clear a slot before adding this suggestion.':'Cả 6 ô đã đầy. Xoá bớt một ô trước khi thêm gợi ý này.','Already in sync':'Đã đồng bộ','Battle Planner cleared':'Đã xoá bộ lập kế hoạch trận đấu','Battle loaded into the planner':'Đã tải trận đấu vào bộ lập kế hoạch','Choose a Pokémon from the search suggestions':'Hãy chọn một Pokémon từ gợi ý tìm kiếm','Choose a Pokémon name from the search suggestions':'Hãy chọn tên Pokémon từ gợi ý tìm kiếm','Cloud save loaded':'Đã tải save từ đám mây','Encrypted save uploaded':'Đã tải save mã hoá lên','Future Team build saved to Favorites':'Đã lưu build Đội hình tương lai vào Yêu thích','Game save imported':'Đã nhập file save game','Held item cleared':'Đã xoá vật phẩm cầm','Latest cloud version checked':'Đã kiểm tra phiên bản mới nhất trên đám mây','Pokémon build saved to Favorites':'Đã lưu build Pokémon vào Yêu thích','Private sync code created':'Đã tạo mã đồng bộ riêng tư','Save exported':'Đã xuất file save','Save imported':'Đã nhập file save','Saved build added to Future Team':'Đã thêm build đã lưu vào Đội hình tương lai','Saved build added to the team':'Đã thêm build đã lưu vào đội hình','Saved build removed':'Đã xoá build đã lưu','Sync code copied':'Đã sao chép mã đồng bộ','Sync code forgotten on this device':'Đã quên mã đồng bộ trên thiết bị này',
+  };
+  const STATIC_UI=[
+    {selector:'#globalSearch',attr:'placeholder',vi:'Tìm trong toàn bộ cẩm nang…'},
+    {selector:'.progress-pill b',vi:'Dex của tôi'},
+    {selector:'.source-card>small',vi:'NGUỒN DỮ LIỆU'},
+    {selector:'.source-card>p',vi:'Khu vực gặp, trận đấu v4.1 và các build cộng đồng có ghi nguồn.'},
+    {selector:'aside.sidebar nav button[data-view="home"]',vi:'Tổng quan'},
+    {selector:'aside.sidebar nav button[data-view="pokedex"]',vi:'Pokédex'},
+    {selector:'aside.sidebar nav button[data-view="moves"]',vi:'Chiêu thức'},
+    {selector:'aside.sidebar nav button[data-view="items"]',vi:'Vật phẩm'},
+    {selector:'aside.sidebar nav button[data-view="locations"]',vi:'Địa điểm'},
+    {selector:'aside.sidebar nav button[data-view="team"]',vi:'Xây đội hình'},
+    {selector:'aside.sidebar nav button[data-view="future"]',vi:'Đội hình tương lai'},
+    {selector:'aside.sidebar nav button[data-view="favorites"]',vi:'Yêu thích'},
+    {selector:'aside.sidebar nav button[data-view="battle"]',vi:'Trận đấu'},
+    {selector:'aside.sidebar nav button[data-view="progress"]',vi:'Tiến trình'},
+    {selector:'aside.sidebar nav button[data-view="save"]',vi:'Lưu & Đồng bộ'},
+    {selector:'nav.mobile-nav button[data-view="home"] small',vi:'Trang chủ'},
+    {selector:'nav.mobile-nav button[data-view="pokedex"] small',vi:'Dex'},
+    {selector:'nav.mobile-nav button[data-view="moves"] small',vi:'Chiêu'},
+    {selector:'nav.mobile-nav button[data-view="items"] small',vi:'Đồ'},
+    {selector:'nav.mobile-nav button[data-view="locations"] small',vi:'Nơi'},
+    {selector:'nav.mobile-nav button[data-view="team"] small',vi:'Đội'},
+    {selector:'nav.mobile-nav button[data-view="future"] small',vi:'Tương lai'},
+    {selector:'nav.mobile-nav button[data-view="favorites"] small',vi:'Đã lưu'},
+    {selector:'nav.mobile-nav button[data-view="battle"] small',vi:'Trận'},
+    {selector:'nav.mobile-nav button[data-view="progress"] small',vi:'Tiến độ'},
+    {selector:'nav.mobile-nav button[data-view="save"] small',vi:'Đồng bộ'},
+  ];
+  function setButtonText(el,text){if(!el)return;for(let i=el.childNodes.length-1;i>=0;i--){const node=el.childNodes[i];if(node.nodeType===3&&node.nodeValue.trim()){node.nodeValue=' '+text;return}}el.textContent=text}
+  function applyStaticTranslations(){
+    const vi=state.lang==='vi';
+    STATIC_UI.forEach(item=>{
+      const el=document.querySelector(item.selector);
+      if(!el)return;
+      if(item.attr){if(!item.en)item.en=el.getAttribute(item.attr);el.setAttribute(item.attr,vi?item.vi:item.en)}
+      else{if(!item.en)item.en=(el.textContent||'').trim();if(el.tagName==='BUTTON'&&el.querySelector('img'))setButtonText(el,vi?item.vi:item.en);else el.textContent=vi?item.vi:item.en}
+    });
+    document.documentElement.lang=vi?'vi':'en';
+    const toggle=document.querySelector('#langToggle');if(toggle)toggle.textContent=vi?'VI':'EN';
+  }
+  // Strings that aren't translated outright yet (long descriptions, dynamic-count labels) still
+  // show in English, but get a dotted underline — hovering (or tapping on touch) shows a small
+  // frosted-glass tooltip with the Vietnamese meaning, via UI_HINTS below.
+  const UI_HINTS={
+    'Your current Pokédex, badge and party progress at a glance.':'Tổng quan tiến độ Pokédex, huy hiệu và đội hình hiện tại của bạn.',
+    'Kanto Badges':'Huy hiệu Kanto','Not obtained':'Chưa có','Obtained':'Đã có','Empty slot':'Ô trống',
+    'Slot 1':'Ô 1','Slot 2':'Ô 2','Slot 3':'Ô 3','Slot 4':'Ô 4','Slot 5':'Ô 5','Slot 6':'Ô 6',
+    'Not checked':'Chưa kiểm tra','Check the cloud before moving to another device.':'Kiểm tra đám mây trước khi chuyển sang thiết bị khác.',
+    'Your save is encrypted before upload. Keep the code private: anyone who has it can access the save.':'Save của bạn được mã hoá trước khi tải lên. Giữ mã bí mật: ai có mã đều truy cập được save.',
+    'Back up this browser or move your caught Pokédex securely between devices.':'Sao lưu trình duyệt này hoặc chuyển Pokédex đã bắt an toàn giữa các thiết bị.',
+    'Keep a JSON backup of your caught Pokémon without using cloud sync.':'Giữ bản sao lưu JSON cho Pokémon đã bắt mà không cần đồng bộ đám mây.',
+    "Read your current party and every Pokémon in your party or PC boxes straight from a Radical Red save file, and mark them all caught here. This replaces this device's caught list and team.":'Đọc đội hình hiện tại và mọi Pokémon trong đội/hộp PC trực tiếp từ file save Radical Red, rồi đánh dấu tất cả là đã bắt. Thao tác này thay thế danh sách đã bắt và đội hình trên thiết bị này.',
+    'Local revision':'Phiên bản cục bộ','Last changed':'Thay đổi gần nhất','Cloud service needs its one-time Cloudflare setup.':'Dịch vụ đám mây cần thiết lập Cloudflare một lần.',
+    'Cloud service connected.':'Dịch vụ đám mây đã kết nối.',
+    'Stored locally in this browser.':'Lưu cục bộ trên trình duyệt này.',
+    'Trainer & game data generated from the Radical Red decompiling project · powered by @smogon/calc':'Dữ liệu trận đấu/game được tạo từ dự án decompile Radical Red · chạy bằng @smogon/calc',
+  };
+  const HINT_SKIP_TAGS=new Set(['OPTION','SCRIPT','STYLE','TITLE','TEXTAREA']);
+  function ensureHintTooltip(){let el=document.getElementById('viHintTooltip');if(!el){el=document.createElement('div');el.id='viHintTooltip';document.body.appendChild(el)}return el}
+  function positionHintTooltip(tooltip,target){const rect=target.getBoundingClientRect();let top=rect.top-tooltip.offsetHeight-8;if(top<8)top=rect.bottom+8;const left=Math.min(Math.max(8,rect.left),Math.max(8,innerWidth-tooltip.offsetWidth-8));tooltip.style.top=top+'px';tooltip.style.left=left+'px'}
+  function showHintTooltip(target){const tooltip=ensureHintTooltip();tooltip.textContent=target.dataset.hint;tooltip.classList.add('show');positionHintTooltip(tooltip,target)}
+  function hideHintTooltip(){document.getElementById('viHintTooltip')?.classList.remove('show')}
+  document.addEventListener('mouseover',e=>{const target=e.target.closest?.('.vi-hinted');if(target)showHintTooltip(target)});
+  document.addEventListener('mouseout',e=>{if(e.target.closest?.('.vi-hinted'))hideHintTooltip()});
+  document.addEventListener('click',e=>{const target=e.target.closest?.('.vi-hinted');if(target)showHintTooltip(target);else if(!e.target.closest?.('#viHintTooltip'))hideHintTooltip()});
+  function translateDynamicContent(root){
+    if(state.lang!=='vi'||!root)return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+    const nodes=[];let node;while(node=walker.nextNode())nodes.push(node);
+    nodes.forEach(n=>{
+      const trimmed=n.nodeValue.trim();
+      if(!trimmed||!n.parentNode||n.parentNode.nodeType!==1||HINT_SKIP_TAGS.has(n.parentNode.tagName))return;
+      const vi=UI_DICTIONARY[trimmed];
+      if(vi){n.nodeValue=n.nodeValue.replace(trimmed,vi);return}
+      const hint=UI_HINTS[trimmed];
+      if(hint){const span=document.createElement('span');span.className='vi-hinted';span.dataset.hint=hint;span.textContent=n.nodeValue;n.parentNode.replaceChild(span,n)}
+    });
+    root.querySelectorAll('[placeholder]').forEach(el=>{const vi=UI_DICTIONARY[el.getAttribute('placeholder')];if(vi)el.setAttribute('placeholder',vi)});
+    root.querySelectorAll('[aria-label]').forEach(el=>{const vi=UI_DICTIONARY[el.getAttribute('aria-label')];if(vi)el.setAttribute('aria-label',vi)});
+    root.querySelectorAll('[title]').forEach(el=>{const vi=UI_DICTIONARY[el.getAttribute('title')];if(vi)el.setAttribute('title',vi)});
+  }
+  function toggleLang(){state.lang=state.lang==='vi'?'en':'vi';localStorage.setItem(langKey,state.lang);applyStaticTranslations();render()}
+  function toast(msg){const vi=state.lang==='vi'?TOAST_DICTIONARY[msg]:null;const x=document.querySelector('#toast');x.textContent=vi||msg;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),1800)}
   function setupInfiniteScroll(){ const sentinel=main.querySelector(state.view==='moves'?'#moveLoadSentinel':state.view==='items'?'#itemLoadSentinel':state.view==='locations'?'#locationLoadSentinel':'#loadSentinel');if(!sentinel)return;dexObserver=new IntersectionObserver(entries=>{if(!entries.some(entry=>entry.isIntersecting))return;dexObserver.disconnect();if(state.view==='moves')state.moveVisible+=50;else if(state.view==='items')state.itemVisible+=60;else if(state.view==='locations')state.locationVisible+=8;else state.visible+=50;render();},{rootMargin:state.view==='locations'?'0px':'700px 0px'});dexObserver.observe(sentinel); }
   function bindLocationPaging(root){const more=root.querySelector('#locationLoadSentinel');if(!more)return;more.textContent='Show more locations';more.setAttribute('role','button');more.tabIndex=0;const load=()=>{state.locationVisible+=8;render()};more.onclick=load;more.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();load()}}}
-  function render(){ dexObserver?.disconnect();main.innerHTML=state.view==='pokedex'?renderDex():state.view==='moves'?renderMoves():state.view==='items'?renderItems():state.view==='locations'?renderLocations():state.view==='team'?renderTeam():state.view==='future'?renderFuture():state.view==='favorites'?renderFavorites():state.view==='battle'?renderBattle():state.view==='progress'?renderProgress():state.view==='save'?renderSave():renderHome();document.body.classList.toggle('dex-filter-open',state.dexFilterOpen);main.querySelectorAll('img').forEach(img=>{img.loading='lazy';img.decoding='async'});bind();bindDexFilters(main);bindSave(main);bindTeam(main);bindFuture(main);bindFavorites(main);bindFavoriteFutureActions(main);bindOverview(main);bindBattle(main);bindItems(main);bindLegendaries(main);bindEggs(main);bindTeamRecommendations(main);enhanceHeldItems(main);enhanceTeamHeldItemPickers(main);enhanceTeamInfo(main);enhanceFutureFavorites(main);enhanceRankSorts(main);disableInputAssistance(main);enhanceSearchClears(main);enhancePokemonPickers(main);applyPokemonThemes(main);applyRankBadges(main);alignBuildCards(main);bindLocationPaging(main);if(state.view==='pokedex'||state.view==='moves'||state.view==='items')setupInfiniteScroll();updateProgress(); }
+  function render(){ dexObserver?.disconnect();main.innerHTML=state.view==='pokedex'?renderDex():state.view==='moves'?renderMoves():state.view==='items'?renderItems():state.view==='locations'?renderLocations():state.view==='team'?renderTeam():state.view==='future'?renderFuture():state.view==='favorites'?renderFavorites():state.view==='battle'?renderBattle():state.view==='progress'?renderProgress():state.view==='save'?renderSave():state.view==='savreader'?renderSavReader():renderHome();document.body.classList.toggle('dex-filter-open',state.dexFilterOpen);main.querySelectorAll('img').forEach(img=>{img.loading='lazy';img.decoding='async'});bind();bindDexFilters(main);bindSave(main);bindSavReader(main);bindTeam(main);bindFuture(main);bindFavorites(main);bindFavoriteFutureActions(main);bindOverview(main);bindBattle(main);bindItems(main);bindLegendaries(main);bindEggs(main);bindTeamRecommendations(main);enhanceHeldItems(main);enhanceTeamHeldItemPickers(main);enhanceTeamInfo(main);enhanceFutureFavorites(main);enhanceRankSorts(main);disableInputAssistance(main);enhanceSearchClears(main);enhancePokemonPickers(main);applyPokemonThemes(main);applyRankBadges(main);alignBuildCards(main);bindLocationPaging(main);if(state.view==='pokedex'||state.view==='moves'||state.view==='items')setupInfiniteScroll();updateProgress();translateDynamicContent(main); }
   document.querySelectorAll('body>[data-view],.topbar [data-view],.sidebar [data-view],.mobile-nav [data-view]').forEach(x=>x.onclick=()=>navigate(x.dataset.view));
   const global=document.querySelector('#globalSearch'),universalResults=document.querySelector('#universalResults'),jumpTop=document.querySelector('#jumpTop');disableInputAssistance(document.querySelector('.topbar'));enhanceSearchClears(document.querySelector('.topbar'));
   function universalMatches(value){const q=norm(value);if(!q)return[];const starts=(value,name)=>norm(name).startsWith(q)?0:1,rank=(a,b)=>starts(q,a.label)-starts(q,b.label)||a.label.localeCompare(b.label);return[
@@ -525,7 +1131,7 @@
   function hideUniversal(){universalResults.hidden=true;universalResults.innerHTML='';global.setAttribute('aria-expanded','false')}
   function chooseUniversal(button){const kind=button.dataset.universalKind,id=button.dataset.universalId;global.value='';hideUniversal();if(kind==='pokemon')openPokemon(id);else if(kind==='move')openMove(id);else if(kind==='item')openItem(id);else if(kind==='egg')goToEgg(id);else if(kind==='location'){state.locationSection='wild';state.query='';state.locationFilter=id;state.period='day';navigate('locations');requestAnimationFrame(()=>document.querySelector(`[data-location="${norm(id)}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}}
   function showUniversal(){const matches=universalMatches(global.value);if(!global.value.trim()){hideUniversal();return}universalResults.innerHTML=matches.length?matches.map(result=>`<button data-universal-kind="${result.kind}" data-universal-id="${esc(result.id)}">${result.sprite?`<img src="${result.sprite}" alt="">`:'<span class="universal-result-icon">⌕</span>'}<span><strong>${esc(result.label)}</strong><small>${esc(result.meta)}</small></span><b>→</b></button>`).join(''):'<p>No results found across the guide.</p>';universalResults.hidden=false;global.setAttribute('aria-expanded','true');universalResults.querySelectorAll('[data-universal-kind]').forEach(button=>button.onclick=()=>chooseUniversal(button))}
-  global.oninput=showUniversal;global.onkeydown=e=>{if(e.key==='Escape'){hideUniversal();global.blur()}else if(e.key==='Enter'){const first=universalResults.querySelector('[data-universal-kind]');if(first){e.preventDefault();chooseUniversal(first)}}};document.addEventListener('click',e=>{if(!e.target.closest('.global-search-wrap'))hideUniversal()}); document.addEventListener('keydown',e=>{if(e.key==='/'&&!/input|select/i.test(document.activeElement.tagName)){e.preventDefault();global.focus()}}); dialog.onclick=e=>{if(e.target===dialog)dialog.close()};jumpTop.onclick=()=>scrollTo({top:0,behavior:'smooth'});addEventListener('scroll',()=>jumpTop.classList.toggle('show',scrollY>650),{passive:true});document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===state.view));render();
+  global.oninput=showUniversal;global.onkeydown=e=>{if(e.key==='Escape'){hideUniversal();global.blur()}else if(e.key==='Enter'){const first=universalResults.querySelector('[data-universal-kind]');if(first){e.preventDefault();chooseUniversal(first)}}};document.addEventListener('click',e=>{if(!e.target.closest('.global-search-wrap'))hideUniversal()}); document.addEventListener('keydown',e=>{if(e.key==='/'&&!/input|select/i.test(document.activeElement.tagName)){e.preventDefault();global.focus()}}); dialog.onclick=e=>{if(e.target===dialog)dialog.close()};jumpTop.onclick=()=>scrollTo({top:0,behavior:'smooth'});addEventListener('scroll',()=>jumpTop.classList.toggle('show',scrollY>650),{passive:true});document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===state.view));const langToggle=document.querySelector('#langToggle');if(langToggle)langToggle.onclick=toggleLang;applyStaticTranslations();render();
   main.addEventListener('change',event=>{if(event.target.id!=='moveSort')return;state.moveSort=event.target.value;state.moveVisible=50;render()});
   main.addEventListener('click',event=>{const button=event.target.closest('[data-dex-caught]');if(!button)return;state.dexCaughtFilter=button.dataset.dexCaught;state.visible=50;render()});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&syncEndpoint&&state.syncCode)checkCloud().catch(()=>{})});
@@ -537,4 +1143,5 @@
   dialog.addEventListener('close',()=>{dialog.classList.remove('map-dialog');if(state.view==='pokedex'||state.view==='locations')render()});
   dialog.addEventListener('click',event=>{if(!event.target.closest('[data-map-action]'))return;const image=dialog.querySelector('.atlas-map-stage>img');if(!image)return;requestAnimationFrame(()=>requestAnimationFrame(()=>{image.style.transform='translateZ(0)';requestAnimationFrame(()=>image.style.transform='')}))});
   if(syncEndpoint&&state.syncCode)checkCloud().catch(()=>{});
+  loadSavFileHandle().catch(()=>{});
 })();

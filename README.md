@@ -1,6 +1,8 @@
 # Radical Red Field Guide
 
-**Live guide:** https://jimineybillybob1.github.io/pokemon-radical-red-field-guide/
+**Live guide:** https://tungnv229.github.io/pokemon-radical-red-field-guide/
+
+Based on the original [Radical Red Field Guide](https://github.com/jimineybillybob1/pokemon-radical-red-field-guide) by [jimineybillybob1](https://github.com/jimineybillybob1).
 
 An offline-friendly Pokédex and encounter companion for Pokémon Radical Red v4.1. The initial build includes the complete Radical Red Dex dataset, form switching, detailed stats and abilities, persistent caught tracking, and day/night grass and cave locations.
 
